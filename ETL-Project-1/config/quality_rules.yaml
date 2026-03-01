@@ -1,0 +1,52 @@
+datasets:
+  songs:
+    required_columns:
+      - track_id
+      - artists
+      - album_name
+      - track_name
+      - popularity
+      - duration_ms
+      - danceability
+    numeric_columns: []
+    timestamp_columns: []
+    unique_columns:
+      - track_id
+    max_null_ratio:
+      track_id: 0.0
+      artists: 0.05
+      track_name: 0.02
+
+  users:
+    required_columns:
+      - user_id
+      - user_name
+      - user_age
+      - user_country
+      - created_at
+    numeric_columns: []
+    timestamp_columns:
+      - created_at
+    unique_columns:
+      - user_id
+    max_null_ratio:
+      user_id: 0.0
+      user_name: 0.01
+      user_country: 0.02
+
+  streams:
+    required_columns:
+      - user_id
+      - track_id
+      - listen_time
+      - stream_event_id
+    numeric_columns: []
+    timestamp_columns:
+      - listen_time
+    unique_columns:
+      - stream_event_id
+    max_null_ratio:
+      user_id: 0.0
+      track_id: 0.0
+      listen_time: 0.01
+      stream_event_id: 0.0

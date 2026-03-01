@@ -1,0 +1,25 @@
+pipeline:
+  name: s3_csv_to_redshift
+  schedule: "*/15 * * * *"
+  max_active_runs: 1
+  catchup: false
+
+s3:
+  raw_bucket_env: S3_RAW_BUCKET
+  raw_path_env: S3_RAW_PREFIX
+  curated_bucket_env: S3_CURATED_BUCKET
+  curated_path_env: S3_CURATED_PREFIX
+  schema_registry_path_env: S3_SCHEMA_REGISTRY_PREFIX
+
+great_expectations:
+  suite_name: curated_music_entities_suite
+
+redshift:
+  database_env: REDSHIFT_DATABASE
+  workgroup_env: REDSHIFT_WORKGROUP
+  secret_arn_env: REDSHIFT_SECRET_ARN
+  iam_role_arn_env: REDSHIFT_IAM_ROLE_ARN
+  target_schema_env: TARGET_SCHEMA
+
+quality:
+  failure_policy_env: FAILURE_POLICY
