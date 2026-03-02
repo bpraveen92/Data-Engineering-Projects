@@ -9,6 +9,40 @@ A simple production-style data orchestration pipeline that I built to automate t
 
 ---
 
+## Datasets Overview
+
+This project simulates a **music streaming platform** data warehouse scenario. The pipeline ingests and processes three core datasets that represent different aspects of a music streaming service:
+
+### Core Datasets
+
+1. **Songs Dataset** (`songs.csv`)
+   - Contains metadata about tracks available on the platform
+   - Fields: `track_id`, `artist_name`, `track_name`, `duration_ms`, `explicit`, `release_date`
+   - Primary Key: `track_id`
+   - Use case: Master dimension for music catalog analysis
+
+2. **Users Dataset** (`users.csv`)
+   - Contains user profile information and demographics
+   - Fields: `user_id`, `user_name`, `country`, `subscription_type`, `join_date`
+   - Primary Key: `user_id`
+   - Use case: User segmentation, regional analysis, subscription metrics
+
+3. **Streams Dataset** (`streams_*.csv`)
+   - Contains listening events/activity logs from users
+   - Fields: `stream_event_id`, `user_id`, `track_id`, `stream_date`, `listening_duration_ms`, `country`
+   - Primary Key: `stream_event_id`
+   - Use case: Fact table for BI queries, streaming behavior analysis, KPI calculations
+
+### Why This Scenario?
+
+Music streaming data is a great real-world example because:
+- **High volume**: Millions of streaming events daily across users
+- **Schema variability**: Different source systems may report slightly different fields or formats
+- **Quality challenges**: Duplicate events, missing values, data drift over time
+- **Business value**: Clear downstream use cases (dashboards, recommendations, analytics)
+
+---
+
 ## Problem Statement
 
 I designed this pipeline to tackle a realistic production scenario: multiple CSV datasets arriving continuously in S3, each with slightly different schemas and quirky data quality issues. I wanted to build something that felt like a real operational system, so I synthesized some datasets (songs, users, streams) and created a scalable, idempotent solution around them.
