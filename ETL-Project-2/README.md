@@ -55,7 +55,7 @@ ETL-Project-2/
 ├── Makefile                         # Common dev commands
 ├── .env.example                     # Config template — copy to .env
 │
-├── jars/                            # Bundled Spark JARs (Kinesis connector + AWS SDK)
+├── jars/                            # Spark JARs — not committed (see Prerequisites below)
 │   ├── spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar
 │   ├── hadoop-aws-3.3.4.jar
 │   └── aws-java-sdk-bundle-1.12.565.jar
@@ -81,6 +81,38 @@ ETL-Project-2/
 ---
 
 ## Running on Docker
+
+### Prerequisites — Download JARs
+
+The Spark JARs are **not committed to this repo** (too large for GitHub). Download them once and place them in the `jars/` folder before running anything:
+
+```bash
+mkdir -p jars
+
+# 1. Kinesis connector for Spark Structured Streaming
+curl -L -o jars/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar \
+  https://github.com/awslabs/spark-sql-kinesis-connector/releases/download/v1.0.0/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar
+
+# 2. Hadoop AWS S3A filesystem implementation
+curl -L -o jars/hadoop-aws-3.3.4.jar \
+  https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar
+
+# 3. AWS Java SDK bundle (required by both connectors above)
+curl -L -o jars/aws-java-sdk-bundle-1.12.565.jar \
+  https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.565/aws-java-sdk-bundle-1.12.565.jar
+```
+
+After downloading, verify:
+```bash
+ls -lh jars/
+# spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar  ~73 MB
+# hadoop-aws-3.3.4.jar                                   ~8 MB
+# aws-java-sdk-bundle-1.12.565.jar                       ~331 MB
+```
+
+> These JARs are listed in `.gitignore` and must be present **before** running `make up` — the Docker build copies them into the image at `COPY jars/ /opt/spark/jars/`.
+
+---
 
 The only prerequisite is Docker Desktop. No local Python, boto3, or Spark install needed — everything runs inside the containers.
 

@@ -60,3 +60,6 @@ local_checkpoint/
 # Spark
 metastore_db/
 spark-warehouse/
+
+# JARs — too large for GitHub (see README "Prerequisites" for download instructions)
+jars/*.jar
