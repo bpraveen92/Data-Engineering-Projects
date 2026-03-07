@@ -147,51 +147,26 @@ Let it run for a minute or two so there are events sitting in Kinesis before you
 
 ## Step 4: Start the Glue Job
 
-```bash
-make glue-start
-```
+I kicked this off manually through the Glue console — go to **AWS Glue → ETL Jobs → `etl-project-2-streaming` → Run**. That's all it takes.
 
-Which runs:
-```bash
-aws glue start-job-run \
-  --job-name etl-project-2-streaming \
-  --region ap-south-2
-```
+The job takes about 90 seconds to provision the G.1X worker before any Python code actually executes. That's normal for Glue, not a crash. Once it moves to `RUNNING` status in the console, keep an eye on the **Runs** tab — it shows the current state, duration, and a direct link to the CloudWatch logs if anything goes wrong.
 
-You can also just hit Run in the Glue console — either way works. The job takes about 90 seconds to provision the G.1X worker before any Python code actually executes. That's normal for Glue, not a crash.
-
-Monitor it:
-```bash
-make glue-status
-```
-
-Which polls:
-```bash
-aws glue get-job-runs \
-  --job-name etl-project-2-streaming \
-  --region ap-south-2 \
-  --query 'JobRuns[0].{State:JobRunState,Started:StartedOn,Duration:ExecutionTime,Error:ErrorMessage}'
-```
-
-Once the state shows `RUNNING` and a few minutes have passed for the first window to close, Parquet files should start appearing in S3.
+Once it's been running for a few minutes (long enough for the first window to close), output should start appearing in S3.
 
 ---
 
 ## Step 5: Verify Output in S3
 
-```bash
-aws s3 ls s3://pravbala-data-engineering-projects/Project-2/aggregations/ \
-  --recursive --region ap-south-2
+I verified this directly in the S3 console — navigate to **S3 → `pravbala-data-engineering-projects` → `Project-2/aggregations/`**. After the first window closes you should see three partition folders appear:
+
+```
+aggregations/
+├── hourly_streams/window_start=2026-03-07 10:00:00/
+├── top_tracks_hourly/window_start=2026-03-07 10:00:00/
+└── country_metrics_hourly/window_start=2026-03-07 10:00:00/
 ```
 
-Expected — one compacted Parquet file per closed window per table:
-```
-.../hourly_streams/window_start=2026-03-07 10:00:00/part-00000-....snappy.parquet
-.../top_tracks_hourly/window_start=2026-03-07 10:00:00/part-00000-....snappy.parquet
-.../country_metrics_hourly/window_start=2026-03-07 10:00:00/part-00000-....snappy.parquet
-```
-
-The `foreachBatch` + `coalesce(1)` logic in `write_to_s3()` handles consolidation so you get one file per window partition rather than dozens of tiny fragments.
+Each folder contains a single compacted Parquet file — the `foreachBatch` + `coalesce(1)` logic in `write_to_s3()` handles that consolidation so you don't end up with dozens of tiny fragments per window.
 
 ---
 
@@ -199,22 +174,7 @@ The `foreachBatch` + `coalesce(1)` logic in `write_to_s3()` handles consolidatio
 
 This is the step that's easiest to forget, and forgetting it is the most common source of unexpected AWS costs. Glue streaming jobs run indefinitely — there's no `availableNow=True` drain-and-exit here. Left running overnight, a G.1X × 2 worker job burns through ~$21. Always stop it when you're done.
 
-```bash
-# Get the current run ID
-aws glue get-job-runs \
-  --job-name etl-project-2-streaming \
-  --region ap-south-2 \
-  --query 'JobRuns[0].Id' \
-  --output text
-
-# Stop it
-aws glue batch-stop-job-run \
-  --job-name etl-project-2-streaming \
-  --job-run-ids <run-id> \
-  --region ap-south-2
-```
-
-Or just hit Stop in the Glue console. Either works.
+I stopped it through the console — **AWS Glue → ETL Jobs → `etl-project-2-streaming` → Runs tab → select the running job → Actions → Stop run**. Takes about 10 seconds to transition to `STOPPED`.
 
 ---
 
@@ -226,9 +186,9 @@ Or just hit Stop in the Glue console. Either works.
 | 1 | Create IAM role `etl-project-2` (Glue trusted entity) | IAM Console |
 | 2 | Create Glue streaming job with JAR + job parameters | Glue Console |
 | 3 | Run producer against real Kinesis | `make aws-producer` |
-| 4 | Start Glue job | `make glue-start` |
-| 5 | Verify Parquet output in S3 | `aws s3 ls ...` |
-| 6 | **Stop Glue job when done** | `aws glue batch-stop-job-run ...` |
+| 4 | Start Glue job | Glue Console → Run |
+| 5 | Verify Parquet output in S3 | S3 Console → browse `aggregations/` |
+| 6 | **Stop Glue job when done** | Glue Console → Runs → Stop run |
 
 S3 and Kinesis setup are shared with the EMR guide — no need to repeat them here.
 
