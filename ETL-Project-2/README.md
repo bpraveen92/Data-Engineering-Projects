@@ -1,6 +1,8 @@
 # Real-Time Music Streaming Analytics Pipeline
 
-A PySpark Structured Streaming pipeline that reads live music events from Kinesis, joins them with song/user metadata, and writes windowed aggregations to S3 as Parquet. Runs entirely in Docker locally using LocalStack and MinIO — no AWS account needed to test.
+This is a continuation of ETL-Project-1 — same music streaming dataset, but now simulating what happens when the data arrives as a live stream rather than batch CSV files dropping into S3. The question I wanted to answer was: how does the architecture change when you need windowed aggregations in near real-time instead of on a schedule?
+
+The answer is a PySpark Structured Streaming pipeline that reads live music events from Kinesis, joins them with song/user metadata, and writes windowed aggregations to S3 as Parquet. Runs entirely in Docker locally using LocalStack and MinIO — no AWS account needed to test.
 
 **Stack**: PySpark 3.5 · Kinesis · Parquet on S3  
 **Local testing**: Docker (Spark + LocalStack + MinIO)  
