@@ -1,33 +1,5 @@
 .PHONY: help up down logs producer consumer build-kinesis-jar aws-producer emr-upload emr-start emr-status emr-list-apps glue-start glue-status test clean
 
-help:
-	@echo ""
-	@echo "Local development:"
-	@echo "  make up                Start all 3 Docker containers (Spark, LocalStack, MinIO)"
-	@echo "  make down              Stop containers and remove volumes"
-	@echo "  make logs              Tail docker-compose logs"
-	@echo "  make producer          Run Kinesis producer inside Spark container (LocalStack)"
-	@echo "  make consumer          Run Spark aggregator inside Spark container (LocalStack + MinIO)"
-	@echo "  make build-kinesis-jar Build the awslabs connector JAR from source (required for local consumer)"
-	@echo ""
-	@echo "AWS production — producer:"
-	@echo "  make aws-producer      Run Kinesis producer against real AWS Kinesis"
-	@echo ""
-	@echo "AWS production — Glue Streaming (primary deployment):"
-	@echo "  make glue-start        Start the Glue streaming job (runs continuously)"
-	@echo "  make glue-status       Check latest Glue job run status"
-	@echo ""
-	@echo "AWS production — EMR Serverless (future/alternative — see docs/AWS_PRODUCTION_DEPLOYMENT.md):"
-	@echo "  make emr-upload        Upload jars, script and reference data to S3"
-	@echo "  make emr-list-apps     List EMR Serverless applications"
-	@echo "  make emr-start         Submit a job run (requires EMR_APP_ID and EMR_EXECUTION_ROLE_ARN env vars)"
-	@echo "  make emr-status        Check latest job run status (requires EMR_APP_ID)"
-	@echo ""
-	@echo "Testing:"
-	@echo "  make test              Run unit tests"
-	@echo "  make clean             Remove containers, volumes, and cache"
-	@echo ""
-
 up:
 	docker compose up -d
 
