@@ -84,18 +84,22 @@ build-kinesis-jar:
 	@echo "The JAR is excluded from git (.gitignore) — re-run make build-kinesis-jar on a fresh clone."
 
 emr-upload:
+	# NOTE: The original S3 bucket (pravbala-de-etl-project-emr) has been deleted.
+	# Create a new bucket and update the S3 paths below before running this target.
+	# Also update .env S3_BUCKET and the emr-start target accordingly.
 	@echo "Uploading jars to S3 (S3A support jars only — Kinesis connector is bundled in EMR 7.1.0+)..."
-	aws s3 cp jars/hadoop-aws-3.3.4.jar s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-1
-	aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-1
+	aws s3 cp jars/hadoop-aws-3.3.4.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-1
+	aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-1
 	@echo "Uploading script to S3..."
-	aws s3 cp scripts/spark_aggregator.py s3://pravbala-de-etl-project-emr/Project-2/scripts/ --region ap-south-1
+	aws s3 cp scripts/spark_aggregator.py s3://$${S3_BUCKET}/Project-2/scripts/ --region ap-south-1
 	@echo "Uploading reference data to S3..."
-	aws s3 cp sample_data_initial_load/songs.csv s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/ --region ap-south-1
-	aws s3 cp sample_data_initial_load/users.csv s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/ --region ap-south-1
+	aws s3 cp sample_data_initial_load/songs.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-1
+	aws s3 cp sample_data_initial_load/users.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-1
 	@echo "Upload complete."
 
 emr-start:
-	# NOTE: EMR Serverless is the alternative/future deployment target.
+	# NOTE: EMR Serverless application has been deleted.
+	# Recreate it and update EMR_APP_ID in .env before running this target.
 	# available_now trigger is unsupported by the awslabs connector (Issue #79).
 	# See docs/AWS_PRODUCTION_DEPLOYMENT.md for full context.
 	aws emr-serverless start-job-run \
@@ -103,7 +107,7 @@ emr-start:
 		--execution-role-arn $${EMR_EXECUTION_ROLE_ARN} \
 		--region ap-south-1 \
 		--no-cli-pager \
-		--job-driver '{"sparkSubmit":{"entryPoint":"s3://pravbala-de-etl-project-emr/Project-2/scripts/spark_aggregator.py","entryPointArguments":["--kinesis-stream","music-streams","--songs-path","s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/songs.csv","--users-path","s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/users.csv","--output-path","s3://pravbala-de-etl-project-emr/Project-2/aggregations","--checkpoint-path","s3://pravbala-de-etl-project-emr/Project-2/checkpoints","--region","ap-south-1","--window-minutes","5","--watermark-minutes","1","--trigger-mode","available_now"],"sparkSubmitParameters":"--jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/hadoop-aws-3.3.4.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar --conf spark.sql.shuffle.partitions=4"}}'
+		--job-driver '{"sparkSubmit":{"entryPoint":"s3://$${S3_BUCKET}/Project-2/scripts/spark_aggregator.py","entryPointArguments":["--kinesis-stream","music-streams","--songs-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/songs.csv","--users-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/users.csv","--output-path","s3://$${S3_BUCKET}/Project-2/aggregations","--checkpoint-path","s3://$${S3_BUCKET}/Project-2/checkpoints","--region","ap-south-1","--window-minutes","5","--watermark-minutes","1","--trigger-mode","available_now"],"sparkSubmitParameters":"--jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar,s3://$${S3_BUCKET}/Project-2/jars/hadoop-aws-3.3.4.jar,s3://$${S3_BUCKET}/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar --conf spark.sql.shuffle.partitions=4"}}'
 	@echo "EMR Serverless job submitted. Check status: make emr-status"
 
 emr-status:

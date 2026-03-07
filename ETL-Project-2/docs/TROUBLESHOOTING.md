@@ -6,7 +6,7 @@ Issues encountered deploying this PySpark Structured Streaming pipeline — firs
 |-----------|-------------|----------|
 | Runtime | Docker Desktop (Mac) | EMR 7.12.0 · Spark 3.5 · Python 3 |
 | Kinesis | LocalStack `etl-project-2-localstack:4566` | Real stream `music-streams`, `ap-south-1` |
-| S3 | MinIO `etl-project-2-minio:9000` | `pravbala-de-etl-project-emr` bucket |
+| S3 | MinIO `etl-project-2-minio:9000` | `<your-s3-bucket>` (recreate — original bucket deleted) |
 | Credentials | Fake (`test/test`, `minioadmin/minioadmin`) | IAM role `etl-project-2-emr-execution` |
 | Logs | Container stdout / `/tmp/consumer.log` | CloudWatch Logs |
 

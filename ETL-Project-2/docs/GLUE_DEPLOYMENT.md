@@ -42,7 +42,8 @@ It's useful to have this side by side before jumping into the steps:
 
 If you've already worked through the EMR Serverless guide, you're mostly set. The S3 assets and Kinesis stream are shared:
 
-- S3 bucket created and assets uploaded (script, JARs, dimension CSVs) — same as EMR Step 1
+- **S3 bucket** created and assets uploaded (script, JARs, dimension CSVs) — same as EMR Step 1.
+  > **Note:** The original bucket (`pravbala-de-etl-project-emr`) has been deleted. Create a new bucket in `ap-south-1` and update the paths in `.env` (`S3_BUCKET`) and in the Glue job parameters (Step 2) before deploying.
 - Kinesis stream `music-streams` active — same as EMR Step 2
 - AWS CLI configured (`aws configure`)
 
@@ -82,7 +83,7 @@ Go to the Glue console → ETL Jobs → Create job → Spark script editor. This
 | Type | Spark Streaming |
 | Glue version | Glue 4.0 (Spark 3.3, Python 3) |
 | IAM Role | `etl-project-2` |
-| Script location | `s3://pravbala-de-etl-project-emr/Project-2/scripts/spark_aggregator.py` |
+| Script location | `s3://<your-s3-bucket>/Project-2/scripts/spark_aggregator.py` |
 | Temporary directory | `s3://aws-glue-assets-<account-id>-ap-south-1/temporary/` |
 | Worker type | G.1X |
 | Number of workers | 2 |
@@ -91,7 +92,7 @@ Go to the Glue console → ETL Jobs → Create job → Spark script editor. This
 **Extra JARs** — under Job details → Advanced properties → Dependent JARs path:
 
 ```
-s3://pravbala-de-etl-project-emr/Project-2/jars/hadoop-aws-3.3.4.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar
+s3://<your-s3-bucket>/Project-2/jars/hadoop-aws-3.3.4.jar,s3://<your-s3-bucket>/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar
 ```
 
 > **Note on the Kinesis connector for Glue:** AWS Glue 4.0 bundles the `aws-kinesis` connector natively in the runtime — no extra JAR upload is needed. The `readStream.format("aws-kinesis")` call works out of the box. The only JARs you need to supply are the S3A support libraries (`hadoop-aws` and `aws-java-sdk-bundle`) for S3A checkpoint and output paths.
@@ -103,10 +104,10 @@ s3://pravbala-de-etl-project-emr/Project-2/jars/hadoop-aws-3.3.4.jar,s3://pravba
 | Key | Value |
 |-----|-------|
 | `--kinesis-stream` | `music-streams` |
-| `--songs-path` | `s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/songs.csv` |
-| `--users-path` | `s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/users.csv` |
-| `--output-path` | `s3://pravbala-de-etl-project-emr/Project-2/aggregations` |
-| `--checkpoint-path` | `s3a://pravbala-de-etl-project-emr/Project-2/checkpoints` |
+| `--songs-path` | `s3://<your-s3-bucket>/Project-2/sample_data_initial_load/songs.csv` |
+| `--users-path` | `s3://<your-s3-bucket>/Project-2/sample_data_initial_load/users.csv` |
+| `--output-path` | `s3://<your-s3-bucket>/Project-2/aggregations` |
+| `--checkpoint-path` | `s3a://<your-s3-bucket>/Project-2/checkpoints` |
 | `--region` | `ap-south-1` |
 | `--window-minutes` | `5` |
 | `--watermark-minutes` | `1` |
@@ -199,7 +200,7 @@ Once it's been running for a few minutes (long enough for the first window to cl
 
 ## Step 5: Verify Output in S3
 
-I verified this directly in the S3 console — navigate to **S3 → `pravbala-de-etl-project-emr` → `Project-2/aggregations/`**. After the first window closes you should see three partition folders appear:
+I verified this directly in the S3 console — navigate to **S3 → `<your-s3-bucket>` → `Project-2/aggregations/`**. After the first window closes you should see three partition folders appear:
 
 ```
 aggregations/
