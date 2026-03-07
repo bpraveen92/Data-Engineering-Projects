@@ -14,7 +14,7 @@ services:
       # LocalStack credentials for Kinesis connector (AWS SDK uses these)
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=ap-south-2
+      - AWS_DEFAULT_REGION=ap-south-1
       - KINESIS_ENDPOINT=http://etl-project-2-localstack:4566
       # S3A / MinIO credentials (read by spark_aggregator.py for S3A filesystem config)
       - S3_ENDPOINT=http://etl-project-2-minio:9000
@@ -57,7 +57,7 @@ services:
       - DEBUG=0
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=ap-south-2
+      - AWS_DEFAULT_REGION=ap-south-1
     ports:
       - "4566:4566" # LocalStack endpoint
     volumes:

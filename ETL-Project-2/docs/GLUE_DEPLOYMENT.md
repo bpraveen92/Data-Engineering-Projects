@@ -82,8 +82,8 @@ Go to the Glue console → ETL Jobs → Create job → Spark script editor. This
 | Type | Spark Streaming |
 | Glue version | Glue 4.0 (Spark 3.3, Python 3) |
 | IAM Role | `etl-project-2` |
-| Script location | `s3://pravbala-data-engineering-projects/Project-2/scripts/spark_aggregator.py` |
-| Temporary directory | `s3://aws-glue-assets-<account-id>-ap-south-2/temporary/` |
+| Script location | `s3://pravbala-de-etl-project-emr/Project-2/scripts/spark_aggregator.py` |
+| Temporary directory | `s3://aws-glue-assets-<account-id>-ap-south-1/temporary/` |
 | Worker type | G.1X |
 | Number of workers | 2 |
 | Max concurrent runs | 1 |
@@ -91,21 +91,23 @@ Go to the Glue console → ETL Jobs → Create job → Spark script editor. This
 **Extra JARs** — under Job details → Advanced properties → Dependent JARs path:
 
 ```
-s3://pravbala-data-engineering-projects/Project-2/jars/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar
+s3://pravbala-de-etl-project-emr/Project-2/jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/hadoop-aws-3.3.4.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar
 ```
 
-Without this JAR the job crashes immediately with a `ClassNotFoundException` on the Kinesis source. This is what makes Spark aware of the Kinesis streaming format.
+> **Note on the Kinesis JAR for Glue:** Unlike EMR Serverless (where the awslabs connector is bundled in the runtime image at `/usr/share/aws/kinesis/...`), Glue does not bundle it. You need to build the awslabs connector from source or download a pre-built jar from the [GitHub releases](https://github.com/awslabs/spark-sql-kinesis-connector/releases) page, upload it to S3, and reference it here. The latest release compatible with Spark 3.3 (Glue 4.0) is `v1.4.2` — use the `_2.12` Scala binary variant.
+>
+> Without this JAR the job crashes immediately with a `ClassNotFoundException` on the `aws-kinesis` data source.
 
 **Job parameters** — under Job details → Advanced properties → Job parameters:
 
 | Key | Value |
 |-----|-------|
 | `--kinesis-stream` | `music-streams` |
-| `--songs-path` | `s3://pravbala-data-engineering-projects/Project-2/sample_data_initial_load/songs.csv` |
-| `--users-path` | `s3://pravbala-data-engineering-projects/Project-2/sample_data_initial_load/users.csv` |
-| `--output-path` | `s3://pravbala-data-engineering-projects/Project-2/aggregations` |
-| `--checkpoint-path` | `s3a://pravbala-data-engineering-projects/Project-2/checkpoints` |
-| `--region` | `ap-south-2` |
+| `--songs-path` | `s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/songs.csv` |
+| `--users-path` | `s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/users.csv` |
+| `--output-path` | `s3://pravbala-de-etl-project-emr/Project-2/aggregations` |
+| `--checkpoint-path` | `s3a://pravbala-de-etl-project-emr/Project-2/checkpoints` |
+| `--region` | `ap-south-1` |
 | `--window-minutes` | `5` |
 | `--watermark-minutes` | `1` |
 | `--trigger-mode` | `continuous` |
@@ -175,7 +177,7 @@ Which expands to:
 ```bash
 python3 scripts/kinesis_stream_producer.py \
   --stream-name music-streams \
-  --region ap-south-2 \
+  --region ap-south-1 \
   --batch-size 20 \
   --interval-seconds 5.0
   # No --local flag — this targets real AWS
@@ -197,7 +199,7 @@ Once it's been running for a few minutes (long enough for the first window to cl
 
 ## Step 5: Verify Output in S3
 
-I verified this directly in the S3 console — navigate to **S3 → `pravbala-data-engineering-projects` → `Project-2/aggregations/`**. After the first window closes you should see three partition folders appear:
+I verified this directly in the S3 console — navigate to **S3 → `pravbala-de-etl-project-emr` → `Project-2/aggregations/`**. After the first window closes you should see three partition folders appear:
 
 ```
 aggregations/
@@ -236,10 +238,11 @@ S3 and Kinesis setup are shared with the EMR guide — no need to repeat them he
 
 ## Troubleshooting
 
-All the Kinesis connector related problems I faced during the original Glue deployment are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). The ones most likely to catch you out on Glue specifically:
+All the Kinesis connector related problems encountered during deployment are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). The ones most likely to catch you on Glue:
 
 - **G1:** Why the script uses `parse_known_args()` instead of `parse_args()` — Glue injects its own args at runtime (`--JOB_NAME`, `--JOB_RUN_ID`, `--TempDir`, etc.) that aren't in our argparse definition. `parse_args()` crashes on them. Already handled in the script, just explaining why it's there.
 - **G2:** `kinesis.endpointUrl` has to be set explicitly even against real AWS — the connector doesn't default to the regional endpoint.
-- **G3–G6:** The `s3://` vs `s3a://` confusion, concurrent queries sharing a metadata directory, and a couple of other connector edge cases.
+- **G3:** `ClassNotFoundException: aws-kinesis.DefaultSource` — happens if the Kinesis connector JAR isn't listed in Dependent JARs. Unlike EMR (where it's bundled), Glue requires an explicit JAR reference.
+- **G4:** `dotenv` import crash — `python-dotenv` isn't in the Glue runtime; the script already wraps it in `try/except`.
 
-Everything in that guide was figured out during actual deployments on both Glue and EMR. If you hit something not covered there, CloudWatch logs in the Glue console are the first place to look — the driver log usually tells you exactly what's failing.
+If you hit something not covered there, CloudWatch logs in the Glue console are the first place to look — the driver log usually tells you exactly what's failing.

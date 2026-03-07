@@ -1,13 +1,13 @@
-# Deployment Troubleshooting Guide: Local Docker & AWS Glue
+# Deployment Troubleshooting Guide: Local Docker & AWS EMR Serverless
 
-Issues encountered deploying this PySpark Structured Streaming pipeline — first in Docker (LocalStack + MinIO), then on AWS Glue 4.0. The same `spark_aggregator.py` script runs in both environments via the `--local` flag.
+Issues encountered deploying this PySpark Structured Streaming pipeline — first in Docker (LocalStack + MinIO), then on AWS EMR Serverless. The same `spark_aggregator.py` script runs in both environments via the `--local` flag.
 
-| Component | Local Docker | AWS Glue |
+| Component | Local Docker | AWS EMR Serverless |
 |-----------|-------------|----------|
-| Runtime | Docker Desktop (Mac) | Glue 4.0 · Spark 3.3.0-amzn-1 · Python 3.7 |
-| Kinesis | LocalStack `etl-project-2-localstack:4566` | Real stream `music-streams`, `ap-south-2` |
-| S3 | MinIO `etl-project-2-minio:9000` | `pravbala-data-engineering-projects` bucket |
-| Credentials | Fake (`test/test`, `minioadmin/minioadmin`) | IAM role `etl-project-2` |
+| Runtime | Docker Desktop (Mac) | EMR 7.12.0 · Spark 3.5 · Python 3 |
+| Kinesis | LocalStack `etl-project-2-localstack:4566` | Real stream `music-streams`, `ap-south-1` |
+| S3 | MinIO `etl-project-2-minio:9000` | `pravbala-de-etl-project-emr` bucket |
+| Credentials | Fake (`test/test`, `minioadmin/minioadmin`) | IAM role `etl-project-2-emr-execution` |
 | Logs | Container stdout / `/tmp/consumer.log` | CloudWatch Logs |
 
 ---
@@ -51,16 +51,18 @@ com.amazonaws.SdkClientException: Invalid region name:
     http://etl-project-2-localstack:4566
 ```
 
-**Cause** — The connector has two separate region code paths: `kinesis.region` (Spark DataSource layer) and `kinesis.kinesisRegion` (AWS SDK layer). Without `kinesis.kinesisRegion`, the SDK calls `getRegionNameByEndpoint()` to parse the region from the URL — works for AWS URLs, fails for a LocalStack hostname.
+**Cause** — When connecting to a LocalStack endpoint, the connector's AWS SDK layer cannot parse a region name from a bare hostname URL like `http://etl-project-2-localstack:4566`. It expects a standard AWS endpoint URL from which it could derive the region.
 
-**Fix** — Set both keys explicitly:
+**Fix** — Set `kinesis.region` explicitly in the connector options:
 ```python
 options = {
-    "kinesis.region": region,        # Spark DataSource layer
-    "kinesis.kinesisRegion": region, # AWS SDK layer inside the connector
+    "kinesis.region": region,
+    "kinesis.endpointUrl": localstack_endpoint,
     ...
 }
 ```
+
+This applies to the awslabs connector (EMR 7.1.0+ bundled). For production (real AWS), `kinesis.region` is still required — the connector has no auto-detection fallback.
 
 **References**
 - [Kinesis connector config reference](https://github.com/awslabs/spark-sql-kinesis-connector#kinesis-source-configuration)
@@ -136,16 +138,16 @@ KINESIS_ENDPOINT=http://localhost:4566
 | # | Error | Cause | Fix |
 |---|-------|-------|-----|
 | L1 | `UnrecognizedClientException` | JVM doesn't inherit container env var credentials | Inject as `-Daws.accessKeyId` JVM system properties |
-| L2 | `SdkClientException` — invalid region name | Missing `kinesis.kinesisRegion`; SDK tries to parse region from LocalStack URL | Set both `kinesis.region` and `kinesis.kinesisRegion` |
+| L2 | `SdkClientException` — invalid region name | SDK can't parse region from a LocalStack hostname URL | Set `kinesis.region` explicitly in connector options |
 | L3 | `NoSuchBucket` (404) | MinIO doesn't auto-create; `make down` wipes the volume | Manually create `etl-data` and `aggregations` before each run |
 | L4 | `Access Denied` (403) from MinIO | S3A virtual-hosted-style addressing; MinIO needs path-style | `spark.hadoop.fs.s3a.path.style.access = true` |
 | L5 | `EndpointConnectionError` to `localhost:4566` | `localhost` inside a container is the container itself | Container hostname in `docker-compose.yml`; `localhost` only in `.env` |
 
 ---
 
-## Part 2 — AWS Glue Issues
+## Part 2 — AWS EMR Serverless Issues
 
-Each Glue run takes ~90 seconds to provision a worker before any Python code runs. Below are all 6 failures in the order they occurred.
+Each EMR Serverless run takes ~30–60 seconds to provision workers before any Spark code runs. Below are the issues encountered in the order they occurred.
 
 ---
 
@@ -156,14 +158,14 @@ Each Glue run takes ~90 seconds to provision a worker before any Python code run
 Error from Python: SystemExit: 2
 ```
 
-**Cause** — Glue injects its own arguments into `sys.argv` at runtime (`--JOB_NAME`, `--TempDir`, `--job-bookmark-option`, etc.). `parser.parse_args()` raises an error on any unrecognised argument and calls `sys.exit(2)` before any Spark code runs.
+**Cause** — When running on managed runtimes (Glue, EMR Serverless), additional arguments may be injected into `sys.argv`. `parser.parse_args()` raises an error on any unrecognised argument and calls `sys.exit(2)` before any Spark code runs.
 
 **Fix**
 ```python
-# parse_known_args() silently ignores Glue-injected arguments
+# parse_known_args() silently ignores any injected arguments
 args, unknown = parser.parse_known_args()
 if unknown:
-    logger.warning(f"Ignoring unrecognized arguments (likely Glue internals): {unknown}")
+    logger.warning(f"Ignoring unrecognized arguments (likely runtime internals): {unknown}")
 ```
 
 **References**
@@ -179,7 +181,7 @@ if unknown:
 java.lang.IllegalArgumentException: kinesis.endpointUrl is not specified
 ```
 
-**Cause** — Connector v1.0.0 has no default fallback to the public Kinesis endpoint. `kinesis.endpointUrl` is required even when targeting real AWS.
+**Cause** — The awslabs connector requires `kinesis.endpointUrl` explicitly — there is no automatic fallback to the public AWS endpoint, even when running on EMR with a VPC Interface Endpoint.
 
 **Fix**
 ```python
@@ -189,118 +191,41 @@ options = {
 }
 # LocalStack overrides this:
 if use_localstack:
-    options.update({"kinesis.endpointUrl": localstack_endpoint, ...})
+    options["kinesis.endpointUrl"] = localstack_endpoint
 ```
+
+On EMR Serverless with a Kinesis VPC Interface Endpoint configured and private DNS enabled, the hostname `kinesis.{region}.amazonaws.com` resolves to the VPC endpoint's private IP automatically — no special URL needed.
 
 **References**
 - [spark-sql-kinesis-connector — source config options](https://github.com/awslabs/spark-sql-kinesis-connector#kinesis-source-configuration)
+- [AWS PrivateLink for Kinesis](https://docs.aws.amazon.com/streams/latest/dev/vpc.html)
 
 ---
 
-### G3 — `No AbstractFileSystem configured for scheme: s3`
+### G3 — `ClassNotFoundException: aws-kinesis.DefaultSource`
 
 **Error**
 ```
-org.apache.hadoop.fs.UnsupportedFileSystemException:
-fs.AbstractFileSystem.s3.impl=null: No AbstractFileSystem configured for scheme: s3
-    at ...kinesis.metadata.HDFSMetadataCommitter.<init>
+java.lang.ClassNotFoundException: Failed to find data source: aws-kinesis
 ```
 
-**Cause** — When `kinesis.metadataPath` isn't set, `HDFSMetadataCommitter` derives its own path using the bare `s3://` scheme. Glue 4.0 has `s3a://` fully configured but the legacy `s3://` AbstractFileSystem is not, so the lookup fails immediately.
+**Cause** — The awslabs connector jar is bundled on the EMR 7.1.0+ runtime image, but the `"aws-kinesis"` ServiceLoader entry is only registered when the jar is explicitly placed on the classpath via `--jars`. Referencing it from an S3 path alone does not trigger ServiceLoader registration for PySpark.
 
-**Fix**
-```python
-options = {
-    "kinesis.metadataPath": f"s3a://your-bucket/checkpoints/kinesis-metadata-{suffix}",
-    ...
-}
+**Fix** — Reference the connector's local path on the EMR image via `--jars`:
+```
+--jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
 ```
 
-**In this project** — `read_kinesis()` derives `metadataPath` automatically:
-- **Local** (`--local` flag): `{checkpoint_path}/kinesis-metadata-{suffix}` → e.g. `s3a://etl-project-2-data/checkpoints/kinesis-metadata-hourly`
-- **Production (Glue)**: hardcoded to `s3a://pravbala-data-engineering-projects/Project-2/checkpoints/kinesis-metadata-{suffix}`
-
-`checkpoint_path` is the value passed via `--checkpoint-path` (see `make consumer` / Glue job arguments).
+This is the `--jars` entry in `make emr-start` and is already set correctly.
 
 **References**
-- [Hadoop S3A vs legacy S3 filesystem](https://hadoop.apache.org/docs/stable/hadoop-aws/tools/hadoop-aws/index.html#Features)
-- [AWS Glue — working with Amazon S3](https://docs.aws.amazon.com/glue/latest/dg/aws-glue-programming-etl-connect-s3-home.html)
+- [EMR Serverless — Kinesis connector](https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-spark-structured-streaming.html)
 
 ---
 
-### G4 — `Unable to fetch committed metadata from previous batch id 0` (concurrent queries)
+### G4 — `dotenv` import crash (pre-emptive)
 
-**Error**
-```
-java.lang.IllegalStateException: Unable to fetch committed metadata
-from previous batch id 0. Some data may have been missed.
-```
-
-**Cause** — Three streaming queries were started from the same shared `raw` DataFrame. Each `writeStream.start()` creates its own `KinesisV2MicrobatchStream` instance, all sharing the same `kinesis.metadataPath`. Each query's batch 0 write overwrites the others', so the next micro-batch can't find committed offsets.
-
-**Fix** — Give each query its own independent Kinesis read with a unique `metadataPath`:
-```python
-def make_enriched(suffix):
-    raw = read_kinesis(spark, kinesis_stream, region,
-                       use_localstack, metadata_suffix=suffix,
-                       checkpoint_path=checkpoint_path)
-    return enrich_events(parse_events(raw), songs, users)
-
-hourly     = compute_hourly_streams(make_enriched("hourly"), ...)
-top_tracks = compute_top_tracks(make_enriched("top_tracks"), ...)
-country    = compute_country_metrics(make_enriched("country"), ...)
-```
-
-`checkpoint_path` is passed into `read_kinesis()` so the derived `metadataPath` stays co-located with the Spark checkpoints under the same root (local: `s3a://etl-project-2-data/checkpoints/`, production: `s3a://pravbala-data-engineering-projects/Project-2/checkpoints/`).
-
-**References**
-- [Spark Structured Streaming — multiple queries on the same source](https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html)
-- [awslabs/spark-sql-kinesis-connector — issues](https://github.com/awslabs/spark-sql-kinesis-connector/issues)
-
----
-
-### G5 — Same crash on every restart (checkpoint / metadata desync)
-
-**Error**
-```
-java.lang.IllegalStateException: Unable to fetch committed metadata
-from previous batch id 0. Some data may have been missed.
-```
-
-**Cause** — `kinesis.metadataPath` was set to `/tmp/`. Glue allocates a fresh worker on each restart with an empty `/tmp/`. Spark's S3 checkpoint shows batch 0 completed; the connector's `/tmp/` metadata has no record of it — they're out of sync.
-
-**Fix** — Move `kinesis.metadataPath` to `s3a://` so both Spark checkpoint and connector metadata persist across restarts:
-```python
-# Before
-"kinesis.metadataPath": f"/tmp/kinesis-metadata-{suffix}",
-
-# After
-"kinesis.metadataPath": f"s3a://your-bucket/checkpoints/kinesis-metadata-{suffix}",
-```
-
-**In this project** — `read_kinesis()` automatically uses `{checkpoint_path}/kinesis-metadata-{suffix}` when running locally. Passing `--checkpoint-path s3a://etl-project-2-data/checkpoints` (local) or the production equivalent ensures both Spark checkpoints and connector metadata land under the same S3 root and survive restarts.
-
-Resulting S3 layout:
-```
-checkpoints/
-|-- hourly_streams/               <- Spark checkpoint
-|-- top_tracks_hourly/            <- Spark checkpoint
-|-- country_metrics_hourly/       <- Spark checkpoint
-|-- kinesis-metadata-hourly/      <- Connector shard metadata
-|-- kinesis-metadata-top_tracks/
-`-- kinesis-metadata-country/
-```
-
-> To start completely fresh: delete the entire `checkpoints/` prefix in S3. This resets both Spark's checkpoint and connector metadata, and the job replays from `TRIM_HORIZON`.
-
-**References**
-- [Spark Structured Streaming — recovery semantics](https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html#recovery-semantics-after-changes-in-a-streaming-query)
-
----
-
-### G6 — `dotenv` import crash (pre-emptive)
-
-**Cause** — `python-dotenv` is in `requirements-dev.txt` for local use but is not available in the Glue 4.0 Python runtime.
+**Cause** — `python-dotenv` is in `requirements-dev.txt` for local use but is not available in EMR Serverless or Glue Python runtimes.
 
 **Fix**
 ```python
@@ -308,7 +233,7 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass  # Not available in Glue — env vars come from job parameters
+    pass  # Not available in EMR runtime — env vars come from job parameters
 ```
 
 ---
@@ -317,56 +242,48 @@ except ImportError:
 
 | # | Error | Cause | Fix |
 |---|-------|-------|-----|
-| G1 | `SystemExit: 2` | `parse_args()` rejects Glue-injected flags | Switch to `parse_known_args()` |
-| G2 | `kinesis.endpointUrl is not specified` | Connector v1.0.0 has no default endpoint | Set `kinesis.endpointUrl` explicitly, even for real AWS |
-| G3 | `No AbstractFileSystem for scheme: s3` | `HDFSMetadataCommitter` auto-derives an `s3://` path; not configured in Glue 4.0 | Set `kinesis.metadataPath` to an `s3a://` path |
-| G4 | `Unable to fetch committed metadata` (same run) | Three queries share one `metadataPath`; batch 0 writes overwrite each other | Unique `metadataPath` per query via `metadata_suffix` |
-| G5 | `Unable to fetch committed metadata` (on restart) | `metadataPath` in `/tmp/` is wiped on new worker allocation | Move `metadataPath` to `s3a://` |
-| G6 | `ModuleNotFoundError: dotenv` | `python-dotenv` absent from Glue 4.0 runtime | Wrap import in `try/except ImportError` |
+| G1 | `SystemExit: 2` | `parse_args()` rejects runtime-injected flags | Switch to `parse_known_args()` |
+| G2 | `kinesis.endpointUrl is not specified` | Connector has no default endpoint fallback | Set `kinesis.endpointUrl` explicitly, even for real AWS |
+| G3 | `ClassNotFoundException: aws-kinesis.DefaultSource` | ServiceLoader not triggered without `--jars` local path | Pass local jar path via `--jars /usr/share/aws/kinesis/...` |
+| G4 | `ModuleNotFoundError: dotenv` | `python-dotenv` absent from EMR/Glue runtime | Wrap import in `try/except ImportError` |
 
 ---
 
 ## Key Lessons
 
 - **JVM != Python process.** In Docker, credentials set as env vars are not visible to the Kinesis connector's JVM. Use `-D` JVM system properties via `spark.driver.extraJavaOptions`.
-- **`kinesis.region` and `kinesis.kinesisRegion` are different.** Two code paths, two config keys — set both, always.
-- **MinIO requires path-style access.** `spark.hadoop.fs.s3a.path.style.access = true` is non-negotiable for S3A -> MinIO.
+- **`kinesis.region` is always required.** The connector has no automatic region detection — set it explicitly for both LocalStack and real AWS.
+- **MinIO requires path-style access.** `spark.hadoop.fs.s3a.path.style.access = true` is non-negotiable for S3A → MinIO.
 - **`localhost` means different things inside vs outside Docker.** Keep `.env` (host-side) and `docker-compose.yml` env values (container-side) separate.
-- **Use `parse_known_args()` on Glue.** Glue always injects its own `sys.argv` entries; `parse_args()` will always crash.
-- **Connector v1.0.0 is not zero-config.** `endpointUrl` and `metadataPath` are both required — no defaults.
-- **`s3://` != `s3a://` on Glue.** Any JVM Hadoop path config must use `s3a://`.
-- **Never mix ephemeral and durable state.** All checkpoint and metadata paths must live in S3 — never `/tmp/` — for a job that restarts.
-- **Concurrent queries need full isolation.** Each `writeStream.start()` needs its own Kinesis read with a unique `metadataPath`.
+- **Use `parse_known_args()` on managed runtimes.** EMR/Glue may inject their own `sys.argv` entries; `parse_args()` will crash on them.
+- **`kinesis.endpointUrl` has no default.** Always set it explicitly — even for real AWS.
+- **ServiceLoader requires `--jars` with a local path.** The `"aws-kinesis"` format string resolves only when the connector jar is on the Spark classpath, which requires `--jars` with the local image path on EMR. An S3 path alone does not trigger ServiceLoader registration for PySpark jobs.
+- **All checkpoint state must be in S3.** Never use `/tmp/` for Spark checkpoint or connector metadata — EMR workers are ephemeral and `/tmp/` is wiped on each run.
 
 ---
 
-## Final Working Configuration
+## Current Working Configuration
 
 ```python
 options = {
-    "kinesis.streamName":      kinesis_stream,
-    "kinesis.initialPosition": "TRIM_HORIZON",
-    "kinesis.region":          region,
-    "kinesis.kinesisRegion":   region,
-    "kinesis.endpointUrl":     f"https://kinesis.{region}.amazonaws.com",
-    "kinesis.metadataPath":    f"s3a://your-bucket/checkpoints/kinesis-metadata-{metadata_suffix}",
+    "kinesis.streamName":       kinesis_stream,
+    "kinesis.startingPosition": "TRIM_HORIZON",
+    "kinesis.region":           region,
+    "kinesis.endpointUrl":      f"https://kinesis.{region}.amazonaws.com",
+    "kinesis.consumerType":     "GetRecords",
 }
 
 if use_localstack:
-    options.update({
-        "kinesis.endpointUrl":          localstack_endpoint,
-        "kinesis.verifyCertificate":    "false",
-        "kinesis.allowUnauthorizedSsl": "true",
-    })
+    options["kinesis.endpointUrl"] = localstack_endpoint
 ```
 
-Pattern for isolated concurrent queries:
+A single `readStream` fans out to all 3 `writeStream` queries — the awslabs connector tracks per-query shard offsets inside each query's own checkpoint directory, so no per-query Kinesis read isolation is needed:
 ```python
-def make_enriched(suffix):
-    raw = read_kinesis(spark, kinesis_stream, region, use_localstack, metadata_suffix=suffix)
-    return enrich_events(parse_events(raw), songs, users)
+raw      = read_kinesis(spark, kinesis_stream, region, use_localstack)
+enriched = enrich_events(parse_events(raw), songs, users)
 
-hourly     = compute_hourly_streams(make_enriched("hourly"), ...)
-top_tracks = compute_top_tracks(make_enriched("top_tracks"), ...)
-country    = compute_country_metrics(make_enriched("country"), ...)
+# All 3 writeStream calls share the same `enriched` DataFrame:
+hourly     = compute_hourly_streams(enriched, ...)
+top_tracks = compute_top_tracks(enriched, ...)
+country    = compute_country_metrics(enriched, ...)
 ```

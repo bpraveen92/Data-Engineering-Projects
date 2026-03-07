@@ -11,7 +11,7 @@ For deploying to real AWS see [`AWS_PRODUCTION_DEPLOYMENT.md`](AWS_PRODUCTION_DE
 
 A synthetic music streaming service generates listen events in real-time. The pipeline captures those events via Kinesis, enriches them with song and user metadata, and produces three windowed aggregations — hourly stream counts, top tracks, and country-level metrics — written as Parquet to S3.
 
-Locally, **LocalStack** mocks AWS Kinesis and **MinIO** mocks AWS S3. The same `spark_aggregator.py` that runs in Docker also runs on AWS Glue — the only difference is the `--local` flag.
+Locally, **LocalStack** mocks AWS Kinesis and **MinIO** mocks AWS S3. The same `spark_aggregator.py` that runs in Docker also runs on AWS EMR Serverless — the only difference is the `--local` flag.
 
 ```
 kinesis_stream_producer.py
@@ -216,4 +216,4 @@ make consumer
 
 ## Troubleshooting
 
-For every error encountered during local setup (JVM credential issues, MinIO 403s, `NoSuchBucket`, LocalStack hostname resolution, etc.) see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — Part 1 covers all local Docker issues, Part 2 covers AWS Glue.
+For every error encountered during local setup (JVM credential issues, MinIO 403s, `NoSuchBucket`, LocalStack hostname resolution, etc.) see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — Part 1 covers all local Docker issues, Part 2 covers AWS EMR Serverless.

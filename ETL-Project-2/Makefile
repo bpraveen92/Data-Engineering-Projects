@@ -55,8 +55,12 @@ aws-producer:
 	@echo "Stop with: pkill -f kinesis_stream_producer.py"
 
 consumer:
+	@echo "NOTE: The awslabs Kinesis connector is bundled only on the EMR 7.1.0+ runtime image."
+	@echo "      It is not published to Maven Central and cannot be downloaded for local Docker use."
+	@echo "      For local development, point the consumer at a LocalStack Kinesis endpoint and"
+	@echo "      ensure the connector jar is available inside the Spark container."
 	docker exec -d etl-project-2-spark sh -c '/opt/spark/bin/spark-submit \
-		--jars /opt/spark/jars/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar,/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
+		--jars /opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
 		/opt/spark/scripts/spark_aggregator.py \
 		--kinesis-stream music-streams \
 		--songs-path /opt/spark/sample_data_initial_load/songs.csv \

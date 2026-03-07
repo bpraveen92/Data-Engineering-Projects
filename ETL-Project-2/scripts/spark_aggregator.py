@@ -15,7 +15,7 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass  # dotenv not available in AWS Glue runtime — env vars come from job parameters
+    pass  # dotenv not available in EMR runtime — env vars come from job parameters
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -77,9 +77,9 @@ def create_spark_session(use_localstack=False):
             .config("spark.hadoop.fs.s3a.endpoint.region", "us-east-1")
         )
 
-        # --- JVM AWS credentials ---
-        # Container env vars are not forwarded to the JVM; inject them as
-        # system properties so the Kinesis connector's AWS SDK picks them up.
+        # The Kinesis connector is a JVM library. Container env vars are not
+        # forwarded into the JVM credential chain, so inject them explicitly
+        # as system properties so SystemPropertiesCredentialsProvider picks them up.
         aws_access_key = os.getenv('AWS_ACCESS_KEY_ID', 'test')
         aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY', 'test')
         jvm_creds = (
@@ -91,18 +91,6 @@ def create_spark_session(use_localstack=False):
             builder
             .config("spark.driver.extraJavaOptions", jvm_creds)
             .config("spark.executor.extraJavaOptions", jvm_creds)
-        )
-
-        # --- Kinesis endpoint (LocalStack) ---
-        # Set all three keys — different connector layers read from different ones.
-        kinesis_endpoint = os.getenv(
-            'KINESIS_ENDPOINT', 'http://etl-project-2-localstack:4566')
-
-        builder = (
-            builder
-            .config("spark.kinesis.endpointUrl", kinesis_endpoint)
-            .config("kinesis.endpointUrl", kinesis_endpoint)
-            .config("spark.hadoop.kinesis.endpointUrl", kinesis_endpoint)
         )
 
     return builder.getOrCreate()
@@ -119,48 +107,36 @@ def get_kinesis_schema():
     ])
 
 
-def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=False, metadata_suffix='default', checkpoint_path=None):
+def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=False):
     """
     Read streaming data from Kinesis using the AWS-native connector.
 
     On EMR 7.1.0+ the awslabs spark-sql-kinesis-connector is bundled in the
-    runtime image — no --jars flag needed.  The format string is "aws-kinesis".
-
-    Key differences vs the community v1.0.0 connector:
-      - Option name is "kinesis.startingPosition" (not "kinesis.initialPosition")
-      - "TRIM_HORIZON" is correctly honoured even with availableNow trigger
-      - No separate "kinesis.metadataPath" required — standard Spark checkpoint
-        directory is sufficient
-      - "kinesis.kinesisRegion" is not needed; "kinesis.region" is the sole key
+    runtime image at:
+      /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
+    Reference it via --jars with that local path so ServiceLoader registers
+    the "aws-kinesis" short name before readStream.format() is called.
 
     Args:
         spark: SparkSession object.
         kinesis_stream: Kinesis stream name.
         region: AWS region.
-        use_localstack: If True, override endpoints to use LocalStack.
-        metadata_suffix: Unused — kept for call-site compatibility. The awslabs
-            connector derives its metadata location from the per-query checkpoint
-            directory, so no explicit suffix is required.
-        checkpoint_path: Unused at read time for the awslabs connector (kept for
-            API compatibility).
+        use_localstack: If True, override the endpoint to use LocalStack.
 
     Returns:
         Streaming DataFrame of raw Kinesis records.
     """
-    logger.info(
-        f"Reading from Kinesis stream: {kinesis_stream} (region={region})")
+    logger.info(f"Reading from Kinesis stream: {kinesis_stream} (region={region})")
 
     options = {
-        "kinesis.streamName": kinesis_stream,
-        # awslabs connector option name — correctly honours TRIM_HORIZON with
-        # availableNow trigger (unlike the community v1.0.0 connector).
+        "kinesis.streamName":      kinesis_stream,
         "kinesis.startingPosition": "TRIM_HORIZON",
-        "kinesis.region": region,
-        # Required — no auto-resolution fallback; private DNS on EMR Serverless
-        # resolves this to the Kinesis VPC Interface Endpoint ENI.
-        "kinesis.endpointUrl": f"https://kinesis.{region}.amazonaws.com",
-        # Use polling (GetRecords) consumer — no EFO registration needed.
-        "kinesis.consumerType": "GetRecords",
+        "kinesis.region":          region,
+        # Required — no auto-resolution fallback. On EMR Serverless, private DNS
+        # resolves this hostname to the Kinesis VPC Interface Endpoint ENI.
+        "kinesis.endpointUrl":     f"https://kinesis.{region}.amazonaws.com",
+        # GetRecords (shared throughput) — no EFO consumer registration needed.
+        "kinesis.consumerType":    "GetRecords",
     }
 
     if use_localstack:
@@ -169,22 +145,11 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=Fals
             raise ValueError(
                 "use_localstack=True but KINESIS_ENDPOINT env var is not set."
             )
-
-        # Ensure endpoint has a protocol prefix
         if not endpoint.startswith("http"):
             endpoint = f"http://{endpoint}"
-
         logger.info(f"Using LocalStack Kinesis endpoint: {endpoint}")
+        options["kinesis.endpointUrl"] = endpoint
 
-        options.update({
-            "kinesis.endpointUrl": endpoint,
-        })
-
-    # Use the short name "aws-kinesis" — this works because the awslabs connector
-    # jar is passed via --jars using its local path on the EMR image:
-    #   /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
-    # That jar's META-INF/services registers "aws-kinesis" via ServiceLoader so
-    # the short name resolves correctly once the jar is on the classpath.
     df = (
         spark.readStream
         .format("aws-kinesis")
@@ -469,8 +434,7 @@ def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, reg
         # The awslabs connector (EMR 7.1.0+ native) manages its shard metadata
         # inside the per-query checkpoint directory, so a single shared Kinesis
         # read can safely fan out to multiple writeStream.start() calls.
-        raw = read_kinesis(spark, kinesis_stream, region,
-                           use_localstack, checkpoint_path=checkpoint_path)
+        raw = read_kinesis(spark, kinesis_stream, region, use_localstack)
         events = parse_events(raw)
         enriched = enrich_events(events, songs, users)
 

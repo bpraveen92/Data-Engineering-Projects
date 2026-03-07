@@ -33,7 +33,7 @@ localstack:
     - DEBUG=0
     - AWS_ACCESS_KEY_ID=test
     - AWS_SECRET_ACCESS_KEY=test
-    - AWS_DEFAULT_REGION=ap-south-2
+    - AWS_DEFAULT_REGION=ap-south-1
   ports:
     - "4566:4566"
   volumes:
@@ -47,7 +47,7 @@ localstack:
 # docker-compose.yml — spark service environment
 - AWS_ACCESS_KEY_ID=test
 - AWS_SECRET_ACCESS_KEY=test
-- AWS_DEFAULT_REGION=ap-south-2
+- AWS_DEFAULT_REGION=ap-south-1
 - KINESIS_ENDPOINT=http://etl-project-2-localstack:4566
 ```
 
@@ -133,7 +133,7 @@ The Spark container has its values set directly in `docker-compose.yml` (using i
 # AWS credentials (fake values for LocalStack)
 AWS_ACCESS_KEY_ID=test
 AWS_SECRET_ACCESS_KEY=test
-AWS_DEFAULT_REGION=ap-south-2
+AWS_DEFAULT_REGION=ap-south-1
 
 # MinIO (S3A filesystem)
 S3_ENDPOINT=http://localhost:9000
@@ -153,8 +153,8 @@ KINESIS_ENDPOINT=http://localhost:4566
 | Cost | Free | Pay per request |
 | Credentials | `test/test`, `minioadmin/minioadmin` | Real IAM keys |
 | Endpoint | `localhost:PORT` | `service.region.amazonaws.com` |
-| Kinesis | `etl-project-2-localstack:4566` | `kinesis.ap-south-2.amazonaws.com` |
-| S3 | `etl-project-2-minio:9000` | `s3.ap-south-2.amazonaws.com` |
+| Kinesis | `etl-project-2-localstack:4566` | `kinesis.ap-south-1.amazonaws.com` |
+| S3 | `etl-project-2-minio:9000` | `s3.ap-south-1.amazonaws.com` |
 | Data persistence | Docker named volume | AWS managed |
 | Internet required | No | Yes |
 | Debugging | Local container logs | CloudWatch |
@@ -168,19 +168,6 @@ If you run into errors while setting up or running the local stack, see [`TROUBL
 ---
 
 ## Quick Reference
-
-### Kinesis Metadata Path
-
-The Kinesis connector requires a `kinesis.metadataPath` — a durable location where it persists shard offsets between micro-batches. In this project `read_kinesis()` derives the path automatically:
-
-| Environment | `kinesis.metadataPath` |
-|-------------|------------------------|
-| **Local** | `{checkpoint_path}/kinesis-metadata-{suffix}` → e.g. `s3a://etl-project-2-data/checkpoints/kinesis-metadata-hourly` |
-| **Production** | `s3a://pravbala-data-engineering-projects/Project-2/checkpoints/kinesis-metadata-{suffix}` |
-
-The local path is driven by the `--checkpoint-path` argument passed in `make consumer`. Both Spark checkpoints and connector metadata land under the same root, so a full reset only requires deleting the `checkpoints/` prefix in MinIO.
-
-> **Each of the 3 streaming queries gets its own unique suffix** (`hourly`, `top_tracks`, `country`) to avoid metadata conflicts — see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) G4 for details.
 
 ### Access Points
 

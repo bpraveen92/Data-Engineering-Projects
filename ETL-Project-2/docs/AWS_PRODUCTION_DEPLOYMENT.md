@@ -55,50 +55,48 @@ I set up all the AWS infrastructure manually through the console for this projec
 
 ## Step 1: Create the S3 bucket and upload everything
 
-The bucket name I'm using is `pravbala-data-engineering-projects` in `ap-south-2`. You'll need to create that first through the AWS Console if it doesn't already exist.
+The bucket name I'm using is `pravbala-de-etl-project-emr` in `ap-south-1`. You'll need to create that first through the AWS Console if it doesn't already exist.
 
 The folder layout inside the bucket for this project:
 
 ```
-s3://pravbala-data-engineering-projects/
+s3://pravbala-de-etl-project-emr/
 └── Project-2/
     ├── scripts/
     │   └── spark_aggregator.py           ← the main PySpark job
     ├── jars/
-    │   ├── spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar
-    │   ├── hadoop-aws-3.3.4.jar
+    │   ├── hadoop-aws-3.3.4.jar          ← S3A filesystem support
     │   └── aws-java-sdk-bundle-1.12.565.jar
     ├── sample_data_initial_load/
     │   ├── songs.csv                     ← broadcast dimension table
     │   └── users.csv                     ← broadcast dimension table
     ├── aggregations/                     ← Parquet output lands here
-    └── checkpoints/                      ← Spark + Kinesis connector state
+    └── checkpoints/                      ← Spark streaming state
 ```
+
+> **Kinesis connector:** The awslabs `spark-sql-kinesis-connector` is bundled directly in the EMR 7.1.0+ runtime image at `/usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar`. It does **not** need to be uploaded to S3 — it's referenced via its local path in the `--jars` argument when the job is submitted.
 
 Upload with:
 
 ```bash
 aws s3 cp scripts/spark_aggregator.py \
-  s3://pravbala-data-engineering-projects/Project-2/scripts/spark_aggregator.py \
-  --region ap-south-2
+  s3://pravbala-de-etl-project-emr/Project-2/scripts/spark_aggregator.py \
+  --region ap-south-1
 
 aws s3 cp sample_data_initial_load/songs.csv \
-  s3://pravbala-data-engineering-projects/Project-2/sample_data_initial_load/songs.csv \
-  --region ap-south-2
+  s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/songs.csv \
+  --region ap-south-1
 
 aws s3 cp sample_data_initial_load/users.csv \
-  s3://pravbala-data-engineering-projects/Project-2/sample_data_initial_load/users.csv \
-  --region ap-south-2
+  s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/users.csv \
+  --region ap-south-1
 
-# JARs aren't in the repo (too large for GitHub — see README for download instructions)
-aws s3 cp jars/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar \
-  s3://pravbala-data-engineering-projects/Project-2/jars/ --region ap-south-2
-
+# S3A support JARs (not in the repo — download from Maven Central or Apache)
 aws s3 cp jars/hadoop-aws-3.3.4.jar \
-  s3://pravbala-data-engineering-projects/Project-2/jars/ --region ap-south-2
+  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-1
 
 aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar \
-  s3://pravbala-data-engineering-projects/Project-2/jars/ --region ap-south-2
+  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-1
 ```
 
 The `aggregations/` and `checkpoints/` prefixes don't need to be created manually — Spark creates them on the first write.
@@ -110,7 +108,7 @@ The `aggregations/` and `checkpoints/` prefixes don't need to be created manuall
 Through the Kinesis console, create a stream with these settings:
 
 - **Stream name:** `music-streams`
-- **Region:** `ap-south-2`
+- **Region:** `ap-south-1`
 - **Capacity mode:** Provisioned
 - **Shard count:** 1
 
@@ -133,7 +131,7 @@ Attach these managed policies to it:
 | `AmazonS3FullAccess` | Read dimension CSVs, write Parquet output and checkpoints |
 | `CloudWatchLogsFullAccess` | Stream driver and executor logs to CloudWatch |
 
-In a real production setup I'd scope these down to specific resource ARNs — `AmazonS3FullAccess` on your whole account is too broad. But for this project it gets the job done without the overhead of writing custom inline policies.
+
 
 ---
 
@@ -144,7 +142,7 @@ In the EMR console → EMR Serverless → Create application:
 | Setting | Value |
 |---------|-------|
 | Name | `etl-project-2` |
-| Release label | `emr-6.15.0` (ships with Spark 3.5) |
+| Release label | `emr-7.12.0` (ships with Spark 3.5, includes awslabs Kinesis connector) |
 | Application type | Spark |
 | Pre-initialized capacity | Off |
 
@@ -169,7 +167,7 @@ Which expands to:
 ```bash
 python3 scripts/kinesis_stream_producer.py \
   --stream-name music-streams \
-  --region ap-south-2 \
+  --region ap-south-1 \
   --batch-size 20 \
   --interval-seconds 5.0
   # No --local flag here — this hits real AWS
@@ -222,7 +220,7 @@ The execution role needs `emr-serverless:StartJobRun` permission in addition to 
 {
   "Effect": "Allow",
   "Action": "emr-serverless:StartJobRun",
-  "Resource": "arn:aws:emr-serverless:ap-south-2:<account-id>:/applications/<app-id>"
+  "Resource": "arn:aws:emr-serverless:ap-south-1:<account-id>:/applications/<app-id>"
 }
 ```
 
@@ -259,8 +257,8 @@ EventBridge doesn't wait for the job to finish before scheduling the next one �
 After the first job run completes, check S3:
 
 ```bash
-aws s3 ls s3://pravbala-data-engineering-projects/Project-2/aggregations/ \
-  --recursive --region ap-south-2
+aws s3 ls s3://pravbala-de-etl-project-emr/Project-2/aggregations/ \
+  --recursive --region ap-south-1
 ```
 
 You should see three table partitions, one per window that closed during the run:
@@ -386,7 +384,7 @@ The data correctness is the same either way — Spark's event-time windowing mod
 
 ## Troubleshooting
 
-The Kinesis connector has some sharp edges that took real debugging time to work through — `kinesis.endpointUrl` being required even for real AWS, `s3://` vs `s3a://` in metadata paths, concurrent queries colliding on the same metadata directory. All of it is documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). Everything in that guide applies equally to EMR Serverless and Glue — the connector behaviour is identical across both platforms.
+The main sharp edges with the awslabs Kinesis connector are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — specifically: `kinesis.endpointUrl` being required even for real AWS (G2), and the `ClassNotFoundException` that occurs if the connector jar isn't passed via `--jars` with its local path on the EMR image (G3). Both are already handled correctly in `make emr-start`.
 
 ---
 
