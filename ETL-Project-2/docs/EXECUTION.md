@@ -1,33 +1,23 @@
-# How the ETL-Project-2 Pipeline Works — Local Execution Guide
+# Local Execution Guide
 
-This guide walks through running the full pipeline locally using Docker. Everything runs in containers — no AWS account needed.
-
-For infrastructure reference (LocalStack, MinIO, networking, env vars) see [`LOCAL_DEVELOPMENT_SETUP.md`](LOCAL_DEVELOPMENT_SETUP.md).  
-For deploying to real AWS see [`AWS_PRODUCTION_DEPLOYMENT.md`](AWS_PRODUCTION_DEPLOYMENT.md).
+Full walkthrough for running the pipeline locally with Docker. For infrastructure reference see [`LOCAL_DEVELOPMENT_SETUP.md`](LOCAL_DEVELOPMENT_SETUP.md).
 
 ---
 
-## Pipeline Data Flow
-
-A synthetic music streaming service generates listen events in real-time. The pipeline captures those events via Kinesis, enriches them with song and user metadata, and produces three windowed aggregations — hourly stream counts, top tracks, and country-level metrics — written as Parquet to S3.
-
-Locally, **LocalStack** mocks AWS Kinesis and **MinIO** mocks AWS S3. The same `spark_aggregator.py` that runs in Docker also runs on AWS EMR Serverless — the only difference is the `--local` flag.
+## Data Flow
 
 ```
 kinesis_stream_producer.py
-        |
-        |  (puts events onto stream)
-        v
+    │  (synthetic listen events)
+    ▼
 LocalStack  (Kinesis mock, port 4566)
-        |
-        |  (Spark reads stream)
-        v
+    │
+    ▼
 spark_aggregator.py  (PySpark Structured Streaming)
-        |
-        |  enriches with songs.csv + users.csv (from MinIO)
-        |  computes windowed aggregations
-        v
-MinIO  (S3 mock)
+    │  enriches with songs.csv + users.csv
+    │  computes windowed aggregations
+    ▼
+MinIO  (S3 mock, port 9000)
   aggregations/
     hourly_streams/
     top_tracks_hourly/
@@ -36,97 +26,62 @@ MinIO  (S3 mock)
 
 ---
 
-## Step 1 — Start the containers
+## Step 1 — Start containers
 
 ```bash
 make up
+docker compose ps   # wait until all 3 show healthy
 ```
 
-Starts three containers on a shared bridge network (`etl-network`):
-
-| Container | Purpose | Port |
-|-----------|---------|------|
-| `etl-project-2-spark` | Runs the PySpark job | 4040 (Spark UI) |
-| `etl-project-2-localstack` | Mocks AWS Kinesis | 4566 |
-| `etl-project-2-minio` | Mocks AWS S3 | 9000 (API), 9001 (console) |
-
-Wait until all three show as healthy:
-
-```bash
-docker compose ps
-```
-
-The Spark container idles (running `tail -f /dev/null`) until you submit a job to it.
+The Spark container idles (`tail -f /dev/null`) until you submit a job.
 
 ---
 
-## Step 2 — Set up MinIO bucket
+## Step 2 — Create the MinIO bucket
 
-MinIO doesn't auto-create buckets. After every `make up` you need to create one manually.
+MinIO doesn't auto-create buckets. After every `make up`:
 
-1. Open **http://localhost:9001** — log in with `minioadmin / minioadmin`
+1. Open **http://localhost:9001** — login: `minioadmin / minioadmin`
 2. Create bucket **`etl-project-2-data`**
-   - Upload `sample_data_initial_load/songs.csv` → `etl-project-2-data/songs.csv`
-   - Upload `sample_data_initial_load/users.csv` → `etl-project-2-data/users.csv`
-   - Leave `aggregations/` and `checkpoints/` empty (Spark creates them on first write)
+3. Upload `songs.csv` and `users.csv` from `sample_data_initial_load/` into the bucket root
 
-> **Note:** `make down` runs `docker compose down -v` which wipes the `minio-storage` volume. The bucket and all uploaded files are lost — recreate before each new run.
-
-The Kinesis stream (`music-streams`) is **auto-created** by the producer on first run — no manual setup needed.
+> `make down` runs `docker compose down -v` which wipes the `minio-storage` volume — recreate the bucket before each new run.
 
 ---
 
 ## Step 3 — Run the producer
 
-The producer generates synthetic listen events and puts them onto the `music-streams` Kinesis stream in LocalStack:
-
 ```bash
 make producer
 ```
 
-Which runs inside `etl-project-2-spark`:
-
-```bash
-docker exec etl-project-2-spark python /opt/spark/scripts/kinesis_stream_producer.py \
-  --stream-name music-streams \
-  --batch-size 20 \
-  --interval-seconds 5.0 \
-  --local
-```
-
 Expected output:
-
 ```
 INFO - Stream 'music-streams' does not exist, creating...
 INFO - Stream 'music-streams' is now active
 INFO - Starting producer: music-streams | batch=20 | interval=5.0s
 INFO - [Batch 1] Sent 20 events (total: 20)
 INFO - [Batch 2] Sent 20 events (total: 40)
-...
 ```
 
 The Kinesis stream is auto-created on first run. Leave the producer running while you start the aggregator.
 
 ---
 
-## Step 4 — Run the Spark aggregator
+## Step 4 — Run the aggregator
 
-> **Prerequisite — connector JAR.** The `jars/` directory is gitignored. On a fresh clone you must build the Kinesis connector JAR once before running the consumer:
+> **Prerequisite:** On a fresh clone, build the connector JAR first:
 > ```bash
-> make build-kinesis-jar
+> make build-kinesis-jar   # ~3 min
 > ```
-> This takes a few minutes (Maven builds from source). The resulting `jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar` is copied into the Docker image on the next `make up` / `docker compose build spark`.
 
-In a new terminal:
+In a second terminal:
 
 ```bash
 make consumer
 ```
 
-This runs `spark-submit` inside `etl-project-2-spark` (detached), then tails `/tmp/consumer.log`. The job reads `songs.csv` and `users.csv` from the container's local volume mount (`/opt/spark/sample_data_initial_load/`), consumes the Kinesis stream, computes three windowed aggregations, and writes Parquet to `s3a://etl-project-2-data/aggregations/`.
-
 Expected log output:
-
 ```
 INFO - Starting Spark session (local mode)
 INFO - Reading dimension tables from MinIO...
@@ -139,9 +94,9 @@ INFO - country_metrics_hourly query started
 INFO - All queries running. Awaiting termination...
 ```
 
-After the first window closes (5 minutes by default), Spark flushes the first Parquet files to MinIO.
+First Parquet output appears after ~5 minutes (first window closes).
 
-**First-run behaviour — `TRIM_HORIZON`:** The Kinesis read always starts from the beginning of the shard. If the producer ran before the consumer was started, Spark replays all previously published records in the first few micro-batches before catching up to the live stream. No events are lost regardless of start order. Because Spark uses **event time** (the `timestamp` field embedded in each record) for windowing — not processing time — backlog records are bucketed into their correct original windows.
+> **TRIM_HORIZON:** The consumer always reads from the start of the shard. If the producer ran first, Spark replays the backlog then catches up to live data. No events are lost regardless of start order — event-time windowing ensures backlogged records land in their correct original windows.
 
 ---
 
@@ -151,63 +106,49 @@ Open **http://localhost:4040** once the aggregator is running.
 
 | Tab | What to look for |
 |-----|------------------|
-| **Structured Streaming** | 3 active queries: `hourly_streams`, `top_tracks_hourly`, `country_metrics_hourly` |
-| **Jobs** | Streaming micro-batch jobs triggering every ~30s |
-| **SQL / DataFrame** | Query plans for the join + aggregation |
-| **Executors** | Memory usage |
-
-Each micro-batch shows input rows from Kinesis, processing time, and output rows written to MinIO.
+| Structured Streaming | 3 active queries: `hourly_streams`, `top_tracks_hourly`, `country_metrics_hourly` |
+| Jobs | Streaming micro-batch jobs every ~30s |
+| SQL / DataFrame | Join + aggregation query plans |
 
 ---
 
 ## Step 6 — Browse results in MinIO
 
-Open **http://localhost:9001** → `etl-project-2-data` bucket → `aggregations/`. After the first window closes, Parquet files appear partitioned by `window_start`:
+**http://localhost:9001** → `etl-project-2-data` → `aggregations/`. After the first window closes, three partition folders appear:
 
 ```
 etl-project-2-data/
   aggregations/
-    hourly_streams/
-      window_start=2026-03-03 12:25:00/
-        part-00000-<uuid>.c000.snappy.parquet
-    top_tracks_hourly/
-      window_start=2026-03-03 12:25:00/
-        part-00000-<uuid>.c000.snappy.parquet
-    country_metrics_hourly/
-      window_start=2026-03-03 12:25:00/
-        part-00000-<uuid>.c000.snappy.parquet
+    hourly_streams/window_start=2026-03-03 12:25:00/part-00000-<uuid>.snappy.parquet
+    top_tracks_hourly/window_start=2026-03-03 12:25:00/part-00000-<uuid>.snappy.parquet
+    country_metrics_hourly/window_start=2026-03-03 12:25:00/part-00000-<uuid>.snappy.parquet
   checkpoints/
-    hourly_streams/   ← Spark recovery state
+    hourly_streams/
     top_tracks_hourly/
     country_metrics_hourly/
 ```
 
 ---
 
-## Step 7 — Shut down
+## Step 7 — Tear down
 
 ```bash
 make down
 ```
 
-Stops all containers and wipes the `minio-storage` volume. The next `make up` starts completely clean.
-
 ---
 
-## Running It All Together
+## Minimum Viable Run
 
-Minimum viable run — across two terminals:
-
-**One-time setup (fresh clone):**
+**One-time (fresh clone):**
 ```bash
-make build-kinesis-jar      # build the connector JAR (~5 min, Maven)
+make build-kinesis-jar
 ```
 
 **Terminal 1:**
 ```bash
 make up
-# wait for all 3 containers to show healthy
-# then create the etl-project-2-data bucket in http://localhost:9001 (Step 2)
+# wait for healthy, then create bucket in http://localhost:9001 and upload CSVs
 make producer
 ```
 
@@ -218,16 +159,6 @@ make consumer
 
 ---
 
-## Key Takeaways
-
-- The **producer** and **consumer** both run inside `etl-project-2-spark` via `docker exec` — no local Python or Spark install required
-- The **`--local` flag** switches `spark_aggregator.py` to LocalStack + MinIO mode; omitting it targets real AWS
-- **MinIO buckets must be created manually** after every `make up` — the pipeline does not auto-create them
-- **`TRIM_HORIZON`** means the consumer always replays from the start of the shard — start order doesn't matter
-- **Event time windowing** means backlogged records land in the correct historical windows, not the current one
-
----
-
 ## Troubleshooting
 
-For every error encountered during local setup (JVM credential issues, MinIO 403s, `NoSuchBucket`, LocalStack hostname resolution, etc.) see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — Part 1 covers all local Docker issues, Part 2 covers AWS EMR Serverless.
+For every error encountered during local setup see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — Part 1 covers all local Docker issues.
