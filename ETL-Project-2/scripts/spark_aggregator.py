@@ -123,16 +123,6 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=Fals
     """
     Read streaming data from Kinesis using the AWS-native connector.
 
-    On AWS Glue 4.0 the aws-kinesis connector is built into the runtime —
-    no extra JAR is needed. On EMR 7.1.0+ the same connector is bundled at:
-      /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
-    and must be passed via --jars.
-
-    NOTE — Trigger.AvailableNow is NOT supported by the awslabs connector
-    (GitHub Issue #79, open as of 2026). See docs/AWS_PRODUCTION_DEPLOYMENT.md
-    for the full explanation. The primary deployment target for this project is
-    Glue Streaming with trigger_mode='continuous', which avoids this issue entirely.
-
     Args:
         spark: SparkSession object.
         kinesis_stream: Kinesis stream name.
@@ -168,6 +158,12 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=Fals
             endpoint = f"http://{endpoint}"
         logger.info(f"Using LocalStack Kinesis endpoint: {endpoint}")
         options["kinesis.endpointUrl"] = endpoint
+        # v1.4.2 introduced a second region field (kinesis.kinesisRegion) that also
+        # calls getRegionNameByEndpoint() as its fallback when not explicitly set.
+        # That function tries to parse <service>.<region>.<tld> from the URL and
+        # fails on bare LocalStack hostnames like http://etl-project-2-localstack:4566.
+        # Setting kinesis.kinesisRegion explicitly bypasses the URL-parsing fallback.
+        options["kinesis.kinesisRegion"] = region
 
     df = (
         spark.readStream
@@ -357,9 +353,6 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
         checkpoint_path: Checkpoint root directory for recovery.
         trigger_mode: 'continuous' (default) — runs forever, polling Kinesis every
                       few seconds. Suitable for Glue Streaming (primary deployment).
-                      'available_now' — drain all records currently in Kinesis then
-                      exit. NOTE: unsupported by the awslabs connector (Issue #79).
-                      See docs/AWS_PRODUCTION_DEPLOYMENT.md.
 
     Returns:
         StreamingQuery object.
