@@ -4,6 +4,18 @@ Spark Aggregator for ETL-Project-2
 
 Reads streaming events from Kinesis, enriches with dimension tables (songs, users),
 applies time-windowed aggregations with watermarking, and writes results to S3/MinIO.
+
+Primary deployment target: AWS Glue Streaming (--trigger-mode continuous).
+  - Job runs indefinitely, polling Kinesis every few seconds.
+  - Sub-minute output latency once a window closes.
+  - No checkpoint resume issues — state is held in memory across micro-batches.
+  - Connector: AWS Glue's built-in aws-kinesis connector (no JAR upload needed).
+
+Alternative deployment: AWS EMR Serverless (--trigger-mode available_now).
+  - See docs/AWS_PRODUCTION_DEPLOYMENT.md for full context and known caveats.
+  - NOTE: Trigger.AvailableNow is not supported by the awslabs connector as of 2026
+    (GitHub Issue #79). Cross-job checkpoint resume is broken. EMR is documented as
+    a future option pending resolution of that upstream issue.
 """
 
 import argparse
@@ -111,11 +123,15 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=Fals
     """
     Read streaming data from Kinesis using the AWS-native connector.
 
-    On EMR 7.1.0+ the awslabs spark-sql-kinesis-connector is bundled in the
-    runtime image at:
+    On AWS Glue 4.0 the aws-kinesis connector is built into the runtime —
+    no extra JAR is needed. On EMR 7.1.0+ the same connector is bundled at:
       /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
-    Reference it via --jars with that local path so ServiceLoader registers
-    the "aws-kinesis" short name before readStream.format() is called.
+    and must be passed via --jars.
+
+    NOTE — Trigger.AvailableNow is NOT supported by the awslabs connector
+    (GitHub Issue #79, open as of 2026). See docs/AWS_PRODUCTION_DEPLOYMENT.md
+    for the full explanation. The primary deployment target for this project is
+    Glue Streaming with trigger_mode='continuous', which avoids this issue entirely.
 
     Args:
         spark: SparkSession object.
@@ -126,17 +142,20 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=Fals
     Returns:
         Streaming DataFrame of raw Kinesis records.
     """
-    logger.info(f"Reading from Kinesis stream: {kinesis_stream} (region={region})")
+    logger.info(
+        f"Reading from Kinesis stream: {kinesis_stream} (region={region}, "
+        f"startingPosition=TRIM_HORIZON)"
+    )
 
     options = {
-        "kinesis.streamName":      kinesis_stream,
+        "kinesis.streamName":       kinesis_stream,
         "kinesis.startingPosition": "TRIM_HORIZON",
-        "kinesis.region":          region,
-        # Required — no auto-resolution fallback. On EMR Serverless, private DNS
-        # resolves this hostname to the Kinesis VPC Interface Endpoint ENI.
-        "kinesis.endpointUrl":     f"https://kinesis.{region}.amazonaws.com",
+        "kinesis.region":           region,
+        # Required — no auto-resolution fallback. On Glue and EMR Serverless, private
+        # DNS resolves this hostname to the Kinesis VPC Interface Endpoint ENI.
+        "kinesis.endpointUrl":      f"https://kinesis.{region}.amazonaws.com",
         # GetRecords (shared throughput) — no EFO consumer registration needed.
-        "kinesis.consumerType":    "GetRecords",
+        "kinesis.consumerType":     "GetRecords",
     }
 
     if use_localstack:
@@ -336,10 +355,11 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
         output_path: Base S3 path (e.g. s3a://bucket/aggregations).
         table_name: Sub-directory name for this table's output.
         checkpoint_path: Checkpoint root directory for recovery.
-        trigger_mode: 'continuous' (default) — runs forever, suitable for Glue streaming
-                      or a long-running EMR job. 'available_now' — drains all records
-                      currently in Kinesis then exits cleanly; suitable for EMR Serverless
-                      scheduled via EventBridge (trigger once every N minutes).
+        trigger_mode: 'continuous' (default) — runs forever, polling Kinesis every
+                      few seconds. Suitable for Glue Streaming (primary deployment).
+                      'available_now' — drain all records currently in Kinesis then
+                      exit. NOTE: unsupported by the awslabs connector (Issue #79).
+                      See docs/AWS_PRODUCTION_DEPLOYMENT.md.
 
     Returns:
         StreamingQuery object.
@@ -362,23 +382,25 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
             f"~{estimated_bytes / 1024:.1f}KB estimated → coalescing to {num_files} file(s)"
         )
 
+        # mode("overwrite") for idempotency: if a window partition is reprocessed
+        # (e.g. after a job restart), existing Parquet data is replaced rather than
+        # appended, avoiding duplicate rows.
         batch_df.coalesce(num_files) \
             .write \
-            .mode("append") \
+            .mode("overwrite") \
             .partitionBy("window_start") \
             .parquet(f"{output_path}/{table_name}")
 
     logger.info(
         f"Writing {table_name} to {output_path}/{table_name} (trigger_mode={trigger_mode})...")
 
-    # Output mode selection:
-    # - "update": emit all updated window states every micro-batch, regardless of watermark.
-    #   Required for availableNow (EMR batch) — because availableNow terminates after the last
-    #   real batch and never issues a trailing empty batch to advance the watermark past the
-    #   final window boundary. With "append", those last windows would silently be dropped.
-    # - "append": only emit a window after watermark confirms it's fully closed. Correct for
-    #   continuous Glue streaming where the job never exits and the watermark keeps advancing.
-    output_mode = "update" if trigger_mode == 'available_now' else "append"
+    # Output mode "update": emit all updated window states every micro-batch.
+    # Required for windowed aggregations with watermarking — "append" mode would
+    # hold back windows until the watermark passes their end time, which works
+    # correctly in continuous mode but requires careful watermark tuning.
+    # "update" emits all in-progress windows each batch and lets foreachBatch
+    # handle idempotency via mode("overwrite") per window_start partition.
+    output_mode = "update"
 
     try:
         writer = df.writeStream \
@@ -388,12 +410,10 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
 
         if trigger_mode == 'available_now':
             # Process all records currently available in Kinesis then stop.
-            # Used with EMR Serverless scheduled jobs (EventBridge every N minutes):
-            # each run drains the backlog since the last checkpoint and exits,
-            # so compute scales to zero between runs.
+            # NOTE: unsupported by the awslabs connector (Issue #79) — see
+            # docs/AWS_PRODUCTION_DEPLOYMENT.md for context.
             writer = writer.trigger(availableNow=True)
-        # else: no trigger() call → default continuous micro-batch (Glue streaming
-        # or long-running EMR job).
+        # else: no trigger() call → default continuous micro-batch (Glue streaming).
 
         query = writer.start()
         logger.info(f"Query started for {table_name}: {query.id}")
@@ -404,13 +424,21 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
         raise
 
 
-def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, region='ap-south-1', window_minutes=2, watermark_minutes=0.5, checkpoint_path='/tmp/spark_checkpoints', use_localstack=False, trigger_mode='continuous'):
+def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path,
+                 region='ap-south-1', window_minutes=2, watermark_minutes=0.5,
+                 checkpoint_path='/tmp/spark_checkpoints', use_localstack=False,
+                 trigger_mode='continuous'):
     """
     Execute the end-to-end streaming pipeline.
 
     Loads dimension tables, reads from Kinesis, enriches events, computes
     three aggregations (hourly streams, top tracks, country metrics) and
     writes each to S3/MinIO as compacted Parquet.
+
+    Primary deployment: trigger_mode='continuous' on AWS Glue Streaming.
+    The job runs indefinitely — all three streaming queries stay alive,
+    polling Kinesis every few seconds. Checkpoints persist in S3 across
+    Glue restarts so no records are lost or replayed.
 
     Args:
         spark: SparkSession object.
@@ -421,9 +449,9 @@ def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, reg
         region: AWS region.
         window_minutes: Aggregation window size in minutes.
         watermark_minutes: Late-data watermark in minutes.
-        checkpoint_path: Checkpoint root directory.
+        checkpoint_path: Checkpoint root directory (must be s3a:// on AWS).
         use_localstack: If True, routes Kinesis reads to LocalStack.
-        trigger_mode: 'continuous' or 'available_now' — see write_to_s3() docstring.
+        trigger_mode: 'continuous' (default) or 'available_now'. See write_to_s3().
     """
     try:
         logger.info("Starting streaming aggregation pipeline...")
@@ -431,9 +459,9 @@ def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, reg
         songs = load_songs(spark, songs_path)
         users = load_users(spark, users_path)
 
-        # The awslabs connector (EMR 7.1.0+ native) manages its shard metadata
-        # inside the per-query checkpoint directory, so a single shared Kinesis
-        # read can safely fan out to multiple writeStream.start() calls.
+        # The connector manages its shard metadata inside each query's checkpoint
+        # directory, so a single shared readStream can safely fan out to multiple
+        # writeStream.start() calls without shard-offset conflicts.
         raw = read_kinesis(spark, kinesis_stream, region, use_localstack)
         events = parse_events(raw)
         enriched = enrich_events(events, songs, users)
@@ -479,15 +507,17 @@ def main():
     parser.add_argument('--trigger-mode', default='continuous',
                         choices=['continuous', 'available_now'],
                         help=(
-                            'continuous: run forever (default — Glue streaming or long-running EMR). '
-                            'available_now: drain current Kinesis backlog then exit cleanly '
-                            '(EMR Serverless scheduled via EventBridge every N minutes).'
+                            'continuous (default): run forever — primary deployment target '
+                            'for AWS Glue Streaming. available_now: drain current Kinesis '
+                            'backlog then exit (EMR Serverless scheduled jobs). NOTE: '
+                            'available_now is unsupported by the awslabs connector (Issue #79) '
+                            '— see docs/AWS_PRODUCTION_DEPLOYMENT.md.'
                         ))
     parser.add_argument('--local', action='store_true', help='Use LocalStack')
 
     # parse_known_args() instead of parse_args() so that Glue's internally
-    # injected arguments (--JOB_NAME, --job-bookmark-option, etc.) are silently
-    # ignored rather than causing argparse to exit with SystemExit: 2.
+    # injected arguments (--JOB_NAME, --job-bookmark-option, --TempDir, etc.)
+    # are silently ignored rather than causing argparse to exit with SystemExit: 2.
     args, unknown = parser.parse_known_args()
     if unknown:
         logger.warning(

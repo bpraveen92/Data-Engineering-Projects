@@ -1,20 +1,65 @@
-# Deploying to AWS EMR Serverless
+# Deploying to AWS EMR Serverless — Alternative (Pending Upstream Fix)
 
-> **Caveat:** I've personally tested this pipeline on both EMR Serverless and AWS Glue Streaming. Both work with the same `spark_aggregator.py` script — no code changes needed between the two. If you want the Glue setup instead, head over to [`GLUE_DEPLOYMENT.md`](GLUE_DEPLOYMENT.md).
+> **Status:** EMR Serverless is documented here as a future/alternative deployment target. **It is not currently the primary deployment** — see [`GLUE_DEPLOYMENT.md`](GLUE_DEPLOYMENT.md) for the working setup.
+>
+> **Why EMR is blocked:** The awslabs Kinesis connector does not support `Trigger.AvailableNow` (GitHub Issue #79, open as of March 2026). This breaks the scheduled drain-and-exit architecture that makes EMR Serverless cost-effective. Specifically: the connector stores `TRIM_HORIZON` (not the actual last-read sequence number) in the Spark offset checkpoint, so cross-job resume replays from the beginning of the shard — and all replayed records are dropped as late by the watermark from the prior run. The job exits successfully but writes zero output.
+>
+> **When this becomes viable:** If Issue #79 is resolved upstream, EMR Serverless becomes significantly more attractive — ~$0.50–1/day vs Glue's ~$21/day at this project's scale. The script already supports `--trigger-mode available_now` and the `make emr-start` target is preserved. Switching back would require no code changes, just confirming the connector fix and deleting the stale S3 checkpoint before the first run.
+>
+> The full investigation and root cause are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) (sections G5 and G6).
 
 ---
 
-## Why I went with EMR Serverless
+## Why EMR Serverless was the original plan
 
-Let me be upfront about the trade-off here. This project works with data in the thousands — synthetic music streaming events I'm generating with a producer script, not millions of real concurrent listeners. The analytics we're computing (hourly stream counts, top tracks, country metrics) have a comfortable 1-hour latency SLA. Nobody's going to notice if the dashboard is 30 minutes behind.
+The cost argument was compelling: at ~$21/day for a Glue Streaming G.1X job vs ~$0.50–1/day for EMR Serverless running on a 30-minute EventBridge schedule, EMR would save ~$600/month at this project's scale. The architecture is clean — the job wakes up, drains the Kinesis backlog since the last checkpoint, writes Parquet to S3, and exits. Compute scales to zero between runs.
 
-With that context, running a Glue Streaming job 24/7 made no sense to me. At ~$21/day for a G.1X worker sitting idle between micro-batches, that's over $600/month to process a few thousand events an hour. EMR Serverless on a 30-minute EventBridge schedule costs me roughly $0.50–1/day. The compute wakes up, drains whatever's accumulated in Kinesis since the last run, writes Parquet to S3, saves the checkpoint, and dies. Clean, cheap, and fits the SLA easily.
+The problem is the scheduled architecture depends entirely on the connector persisting a real sequence number to the checkpoint so the next run knows where to resume. That does not work — see the [root cause section below](#the-availablenow-bug-root-cause) and `TROUBLESHOOTING.md` G5.
 
-That said — if I were running this at a real music platform with millions of concurrent listeners where a 5-minute lag means stale recommendation feeds and unhappy product managers, I'd flip to Glue Streaming (or Kinesis Data Analytics) immediately. At that scale, the $600/month becomes a rounding error compared to the business value. I've documented exactly how to do that in [`GLUE_DEPLOYMENT.md`](GLUE_DEPLOYMENT.md).
+At a real music platform with millions of concurrent listeners, the $600/month becomes a rounding error and Glue Streaming's sub-minute output latency pays for itself. For this learning project, we use Glue Streaming because it actually works reliably.
 
-The one-line difference between the two deployments is this argument:
-- EMR Serverless → `--trigger-mode available_now` (drain Kinesis backlog then exit)
-- Glue Streaming → `--trigger-mode continuous` (run forever, poll every few seconds)
+---
+
+## The `availableNow` bug — root cause
+
+This section documents exactly what went wrong so that if Issue #79 is resolved upstream, you know precisely what to verify before switching to EMR.
+
+### What should happen
+
+`Trigger.AvailableNow` requires Spark to call `reportLatestOffset()` on the source before starting any executor work. This gives Spark a "fence" — it knows where the stream ends right now — and it processes records up to that fence, then exits cleanly. The checkpoint stores the real last-read sequence number, so the next run resumes exactly where this one left off.
+
+### What the connector actually does
+
+The awslabs connector implements `SupportsAdmissionControl` and provides `latestOffset(start, readLimit)`, but does **not** implement `reportLatestOffset()`. Without the fence, Spark's `AvailableNow` executor has no upper bound, decides there's nothing to process, and exits immediately. No executor partition readers run.
+
+The connector has two checkpoint layers:
+
+| Layer | Path | Written when | Contains |
+|-------|------|-------------|----------|
+| Spark `offsets/` log | `checkpoints/.../offsets/N` | Before batch N starts | Start position = `TRIM_HORIZON, iteratorPosition: ""` |
+| Connector `shard-source/` | `checkpoints/.../shard-source/N/shardId-...` | After executor partition reader finishes | `AfterSequenceNumber` + real sequence number |
+
+Since no partition readers run → `shard-source/` is never written → on the next job, `getBatchShardsInfo()` finds nothing → falls back to the `offsets/` log → reads `TRIM_HORIZON` → replays from the beginning of the shard → all records are dropped as late by the watermark that advanced in the prior run. The job exits with SUCCESS and zero output.
+
+### Confirmed evidence (job run `00g3v9llj3al201v`, 7 March 2026)
+
+Offset file at `s3://pravbala-de-etl-project-emr/Project-2/checkpoints/hourly_streams/offsets/1`:
+```json
+{"metadata":{"streamName":"music-streams","batchId":"0"},
+ "shardId-000000000000":{
+   "subSequenceNumber":"-1","isLast":"true",
+   "iteratorType":"TRIM_HORIZON","iteratorPosition":""
+ }}
+```
+
+Watermark from job 7 (last successful run): `batchWatermarkMs: 1772885321287` ≈ 2026-03-07T12:09 UTC. Any record with `event_timestamp` before that is dropped.
+
+### What to check when Issue #79 is resolved
+
+1. The `shard-source/` directory exists after each job run and contains `AfterSequenceNumber` entries (not `TRIM_HORIZON`).
+2. The `offsets/` log stores the real sequence number, not an empty `iteratorPosition`.
+3. Job N+1 processes only records newer than job N's last sequence number.
+4. If all three are confirmed: remove the `--trigger-mode available_now` caveat from `Makefile` comments and update this document.
 
 ---
 

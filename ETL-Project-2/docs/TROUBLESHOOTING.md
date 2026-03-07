@@ -238,14 +238,57 @@ except ImportError:
 
 ---
 
+### G5 — `Trigger.AvailableNow` unsupported — job succeeds but writes zero output
+
+**Symptom** — EMR Serverless job exits with state `SUCCESS` but the aggregations S3 prefix is empty (or unchanged from the previous run).
+
+**Cause** — The awslabs connector does not implement `reportLatestOffset()`, which is required by Spark's `AvailableNow` executor to establish a read fence. Without the fence, Spark decides there is nothing to process and exits immediately — no executor partition readers ever run.
+
+Because partition readers never run, the connector's second checkpoint layer (`shard-source/`) is never written. On the next job, `getBatchShardsInfo()` finds no `shard-source/` entries and falls back to the Spark `offsets/` log, which stores the initial `TRIM_HORIZON` position with an empty `iteratorPosition`. The job replays from the beginning of the shard, and all records are dropped as late by the watermark advanced in prior runs.
+
+**Confirmed evidence (job `00g3v9llj3al201v`, 7 March 2026)**
+
+Offset checkpoint at `s3://.../checkpoints/hourly_streams/offsets/1`:
+```json
+{"metadata":{"streamName":"music-streams","batchId":"0"},
+ "shardId-000000000000":{
+   "subSequenceNumber":"-1","isLast":"true",
+   "iteratorType":"TRIM_HORIZON","iteratorPosition":""
+ }}
+```
+Watermark from job 7 (last successful run): `batchWatermarkMs: 1772885321287` = 2026-03-07T12:09 UTC.
+Any record with `event_timestamp` before that is silently dropped.
+
+**Root cause (GitHub Issue #79, open as of March 2026)**
+
+`Trigger.AvailableNow` requires `SupportsAdmissionControl.reportLatestOffset()` to be implemented.
+`KinesisV2MicrobatchStream` implements `latestOffset(start, readLimit)` but **not** `reportLatestOffset()`.
+This is an upstream connector limitation, not a configuration problem.
+
+**Fix** — Switch to `--trigger-mode continuous` on **AWS Glue Streaming** (primary deployment).
+Glue keeps the job alive indefinitely, so `availableNow` is never invoked. Checkpoint resume works
+correctly because state is held in memory across micro-batches without serialising the shard iterator
+between separate job processes.
+
+EMR Serverless remains viable if Issue #79 is resolved upstream. See `docs/AWS_PRODUCTION_DEPLOYMENT.md`
+for the full root cause analysis and what to verify before re-enabling the scheduled architecture.
+
+**References**
+- [awslabs/spark-sql-kinesis-connector Issue #79](https://github.com/awslabs/spark-sql-kinesis-connector/issues/79)
+- [awslabs/spark-sql-kinesis-connector Issue #34](https://github.com/awslabs/spark-sql-kinesis-connector/issues/34) (related: assertion crash on restart when no new records exist)
+- `docs/AWS_PRODUCTION_DEPLOYMENT.md` — full root cause analysis and verification checklist
+
+---
+
 ### Part 2 Summary
 
 | # | Error | Cause | Fix |
 |---|-------|-------|-----|
 | G1 | `SystemExit: 2` | `parse_args()` rejects runtime-injected flags | Switch to `parse_known_args()` |
 | G2 | `kinesis.endpointUrl is not specified` | Connector has no default endpoint fallback | Set `kinesis.endpointUrl` explicitly, even for real AWS |
-| G3 | `ClassNotFoundException: aws-kinesis.DefaultSource` | ServiceLoader not triggered without `--jars` local path | Pass local jar path via `--jars /usr/share/aws/kinesis/...` |
+| G3 | `ClassNotFoundException: aws-kinesis.DefaultSource` | ServiceLoader not triggered without `--jars` local path (EMR only) | Pass local jar path via `--jars /usr/share/aws/kinesis/...`; not needed on Glue (built-in) |
 | G4 | `ModuleNotFoundError: dotenv` | `python-dotenv` absent from EMR/Glue runtime | Wrap import in `try/except ImportError` |
+| G5 | Job SUCCESS but zero output | `availableNow` unsupported (Issue #79); checkpoint stores TRIM_HORIZON | Use Glue Streaming `--trigger-mode continuous` as primary deployment |
 
 ---
 
@@ -257,12 +300,13 @@ except ImportError:
 - **`localhost` means different things inside vs outside Docker.** Keep `.env` (host-side) and `docker-compose.yml` env values (container-side) separate.
 - **Use `parse_known_args()` on managed runtimes.** EMR/Glue may inject their own `sys.argv` entries; `parse_args()` will crash on them.
 - **`kinesis.endpointUrl` has no default.** Always set it explicitly — even for real AWS.
-- **ServiceLoader requires `--jars` with a local path.** The `"aws-kinesis"` format string resolves only when the connector jar is on the Spark classpath, which requires `--jars` with the local image path on EMR. An S3 path alone does not trigger ServiceLoader registration for PySpark jobs.
+- **ServiceLoader requires `--jars` with a local path on EMR.** The `"aws-kinesis"` format string resolves only when the connector jar is on the Spark classpath via `--jars` with the local image path. Not required on Glue — the connector is built into the Glue 4.0 runtime.
 - **All checkpoint state must be in S3.** Never use `/tmp/` for Spark checkpoint or connector metadata — EMR workers are ephemeral and `/tmp/` is wiped on each run.
+- **`Trigger.AvailableNow` is unsupported** by the awslabs connector (Issue #79, open March 2026). `reportLatestOffset()` is not implemented, so the drain-and-exit architecture is broken. Use Glue Streaming (`continuous` trigger) as the primary deployment target until this is resolved upstream.
 
 ---
 
-## Current Working Configuration
+## Current Working Configuration (Glue Streaming — primary)
 
 ```python
 options = {
@@ -277,7 +321,13 @@ if use_localstack:
     options["kinesis.endpointUrl"] = localstack_endpoint
 ```
 
-A single `readStream` fans out to all 3 `writeStream` queries — the awslabs connector tracks per-query shard offsets inside each query's own checkpoint directory, so no per-query Kinesis read isolation is needed:
+Deployment: **AWS Glue Streaming** with `--trigger-mode continuous` (default). The job runs
+indefinitely, polling Kinesis every few seconds. No `availableNow`, no checkpoint resume across
+job boundaries, no connector bugs to work around.
+
+A single `readStream` fans out to all 3 `writeStream` queries — the awslabs connector tracks
+per-query shard offsets inside each query's own checkpoint directory, so no per-query Kinesis read
+isolation is needed:
 ```python
 raw      = read_kinesis(spark, kinesis_stream, region, use_localstack)
 enriched = enrich_events(parse_events(raw), songs, users)

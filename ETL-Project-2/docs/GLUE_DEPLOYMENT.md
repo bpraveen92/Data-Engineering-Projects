@@ -1,25 +1,25 @@
-# Deploying to AWS Glue Streaming — Alternative
+# Deploying to AWS Glue Streaming — Primary Deployment
 
-> **Note:** I've tested this pipeline on both AWS Glue Streaming and EMR Serverless. The primary deployment I'd recommend for this project is EMR Serverless — see [`AWS_PRODUCTION_DEPLOYMENT.md`](AWS_PRODUCTION_DEPLOYMENT.md) for the full reasoning and the cost maths. This guide is for when Glue Streaming is the right call instead.
+> **Primary deployment target:** This is the recommended way to run this pipeline in production. AWS Glue Streaming keeps the job alive continuously, polling Kinesis every few seconds — no `availableNow` drain-and-exit, no checkpoint resume complexity, no connector bugs to work around.
+>
+> I originally documented EMR Serverless as the primary target because of its lower cost per run ($0.50–1/day vs Glue's ~$21/day). However, the awslabs Kinesis connector does not support `Trigger.AvailableNow` (GitHub Issue #79, open as of 2026), which breaks the cross-job checkpoint resume that makes EMR's scheduled architecture work. EMR is documented as a future alternative in [`AWS_PRODUCTION_DEPLOYMENT.md`](AWS_PRODUCTION_DEPLOYMENT.md) — if that upstream issue is resolved, the cost argument becomes compelling again.
 
 ---
 
-## When does Glue Streaming actually make sense?
+## When Glue Streaming makes sense
 
-The honest answer is: not for this project specifically, but absolutely in the right production context.
+For this project, Glue Streaming is the right fit for two reasons: it works reliably with the awslabs Kinesis connector (no `availableNow` bug), and the continuous polling model naturally handles Kinesis's event-time semantics without complex checkpoint management.
 
-For this learning project I'm generating thousands of synthetic events with a local producer and my latency SLA is a comfortable 1 hour. EMR Serverless on a 30-minute schedule handles that at ~$0.50–1/day. But Glue Streaming becomes the clearly better option when:
+The cost comparison with EMR Serverless is worth being honest about:
 
-| Scenario | Why Glue wins here |
-|---|---|
-| Latency SLA under 5 minutes | Glue is always running — records land in output within seconds of arriving in Kinesis |
-| Millions of events/second, unpredictable traffic spikes | Glue scales workers dynamically without you fiddling with schedule frequency |
-| Team already standardised on Glue for all ETL workloads | One fewer orchestration tool to manage — no EventBridge, no EMR console |
-| Business value of near-real-time data far outweighs ~$21/day | At meaningful scale, stale dashboards cost more than the compute bill does |
+| | Glue Streaming (this project) | EMR Serverless (scheduled) |
+|---|---|---|
+| **Daily cost** | ~$21/day (G.1X × 2 workers) | ~$0.50–1/day |
+| **`availableNow` support** | N/A — runs continuously | Broken (Issue #79) |
+| **Checkpoint resume** | Reliable — in-memory across batches | Broken — stores TRIM_HORIZON |
+| **Kinesis connector** | Built-in to Glue runtime | Bundled on EMR image, but limited |
 
-If this were a real music platform with millions of concurrent listeners driving live charts and real-time recommendations, I'd use Glue Streaming without a second thought. The $600/month becomes noise compared to the revenue impact of stale data. For this learning project, EMR Serverless is the right fit.
-
-The same `spark_aggregator.py` script handles both deployments — the only difference is the `--trigger-mode` argument. Glue uses `continuous` (the default), which keeps all three Spark streaming queries alive indefinitely. No drain-and-exit, no schedule — the job runs until you stop it.
+EMR Serverless would save ~$600/month at this scale, which is significant for a learning project. That calculation reverses at real production scale (millions of events/hour, revenue impact of stale dashboards). For now, Glue is the pragmatic choice because it works.
 
 ---
 
@@ -91,12 +91,12 @@ Go to the Glue console → ETL Jobs → Create job → Spark script editor. This
 **Extra JARs** — under Job details → Advanced properties → Dependent JARs path:
 
 ```
-s3://pravbala-de-etl-project-emr/Project-2/jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/hadoop-aws-3.3.4.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar
+s3://pravbala-de-etl-project-emr/Project-2/jars/hadoop-aws-3.3.4.jar,s3://pravbala-de-etl-project-emr/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar
 ```
 
-> **Note on the Kinesis JAR for Glue:** Unlike EMR Serverless (where the awslabs connector is bundled in the runtime image at `/usr/share/aws/kinesis/...`), Glue does not bundle it. You need to build the awslabs connector from source or download a pre-built jar from the [GitHub releases](https://github.com/awslabs/spark-sql-kinesis-connector/releases) page, upload it to S3, and reference it here. The latest release compatible with Spark 3.3 (Glue 4.0) is `v1.4.2` — use the `_2.12` Scala binary variant.
+> **Note on the Kinesis connector for Glue:** AWS Glue 4.0 bundles the `aws-kinesis` connector natively in the runtime — no extra JAR upload is needed. The `readStream.format("aws-kinesis")` call works out of the box. The only JARs you need to supply are the S3A support libraries (`hadoop-aws` and `aws-java-sdk-bundle`) for S3A checkpoint and output paths.
 >
-> Without this JAR the job crashes immediately with a `ClassNotFoundException` on the `aws-kinesis` data source.
+> This is one concrete advantage Glue has over EMR Serverless for this use case: the built-in connector is well-integrated with the Glue runtime and doesn't require the ServiceLoader workaround (`--jars /usr/share/aws/kinesis/...`) that EMR needs.
 
 **Job parameters** — under Job details → Advanced properties → Job parameters:
 
@@ -242,7 +242,7 @@ All the Kinesis connector related problems encountered during deployment are doc
 
 - **G1:** Why the script uses `parse_known_args()` instead of `parse_args()` — Glue injects its own args at runtime (`--JOB_NAME`, `--JOB_RUN_ID`, `--TempDir`, etc.) that aren't in our argparse definition. `parse_args()` crashes on them. Already handled in the script, just explaining why it's there.
 - **G2:** `kinesis.endpointUrl` has to be set explicitly even against real AWS — the connector doesn't default to the regional endpoint.
-- **G3:** `ClassNotFoundException: aws-kinesis.DefaultSource` — happens if the Kinesis connector JAR isn't listed in Dependent JARs. Unlike EMR (where it's bundled), Glue requires an explicit JAR reference.
+- **G3:** `ClassNotFoundException: aws-kinesis.DefaultSource` — this does NOT apply to Glue. The `aws-kinesis` connector is built into Glue 4.0's runtime. If you see this error on Glue, check that you're using Glue 4.0 (not an older version). On EMR Serverless, this happens if the Kinesis connector JAR isn't passed via `--jars` with the local image path — see `docs/AWS_PRODUCTION_DEPLOYMENT.md`.
 - **G4:** `dotenv` import crash — `python-dotenv` isn't in the Glue runtime; the script already wraps it in `try/except`.
 
 If you hit something not covered there, CloudWatch logs in the Glue console are the first place to look — the driver log usually tells you exactly what's failing.

@@ -12,15 +12,15 @@ help:
 	@echo "AWS production — producer:"
 	@echo "  make aws-producer    Run Kinesis producer against real AWS Kinesis"
 	@echo ""
-	@echo "AWS production — EMR Serverless (primary deployment):"
+	@echo "AWS production — Glue Streaming (primary deployment):"
+	@echo "  make glue-start      Start the Glue streaming job (runs continuously)"
+	@echo "  make glue-status     Check latest Glue job run status"
+	@echo ""
+	@echo "AWS production — EMR Serverless (future/alternative — see docs/AWS_PRODUCTION_DEPLOYMENT.md):"
 	@echo "  make emr-upload      Upload jars, script and reference data to S3"
 	@echo "  make emr-list-apps   List EMR Serverless applications"
 	@echo "  make emr-start       Submit a job run (requires EMR_APP_ID and EMR_EXECUTION_ROLE_ARN env vars)"
 	@echo "  make emr-status      Check latest job run status (requires EMR_APP_ID)"
-	@echo ""
-	@echo "AWS production — Glue Streaming (alternative deployment):"
-	@echo "  make glue-start      Start the Glue streaming job"
-	@echo "  make glue-status     Check latest Glue job run status"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test            Run unit tests"
@@ -84,6 +84,9 @@ emr-upload:
 	@echo "Upload complete."
 
 emr-start:
+	# NOTE: EMR Serverless is the alternative/future deployment target.
+	# available_now trigger is unsupported by the awslabs connector (Issue #79).
+	# See docs/AWS_PRODUCTION_DEPLOYMENT.md for full context.
 	aws emr-serverless start-job-run \
 		--application-id $${EMR_APP_ID} \
 		--execution-role-arn $${EMR_EXECUTION_ROLE_ARN} \
