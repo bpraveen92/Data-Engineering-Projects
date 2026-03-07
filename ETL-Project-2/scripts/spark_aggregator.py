@@ -119,7 +119,7 @@ def get_kinesis_schema():
     ])
 
 
-def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=False):
+def read_kinesis(spark, kinesis_stream, region='ap-south-2', use_localstack=False):
     """
     Read streaming data from Kinesis using the AWS-native connector.
 
@@ -375,25 +375,22 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
             f"~{estimated_bytes / 1024:.1f}KB estimated → coalescing to {num_files} file(s)"
         )
 
-        # mode("overwrite") for idempotency: if a window partition is reprocessed
-        # (e.g. after a job restart), existing Parquet data is replaced rather than
-        # appended, avoiding duplicate rows.
+        # mode("append"): safe because outputMode("append") only delivers finalized
+        # windows (past the watermark) — each window partition is written exactly once,
+        # so there is no risk of duplicate rows.
         batch_df.coalesce(num_files) \
             .write \
-            .mode("overwrite") \
+            .mode("append") \
             .partitionBy("window_start") \
             .parquet(f"{output_path}/{table_name}")
 
     logger.info(
         f"Writing {table_name} to {output_path}/{table_name} (trigger_mode={trigger_mode})...")
 
-    # Output mode "update": emit all updated window states every micro-batch.
-    # Required for windowed aggregations with watermarking — "append" mode would
-    # hold back windows until the watermark passes their end time, which works
-    # correctly in continuous mode but requires careful watermark tuning.
-    # "update" emits all in-progress windows each batch and lets foreachBatch
-    # handle idempotency via mode("overwrite") per window_start partition.
-    output_mode = "update"
+    # outputMode("append"): only emit rows for windows that have been fully closed
+    # (watermark has passed their end time). Each window is emitted exactly once —
+    # simpler and cheaper than "update" which re-emits every open window every batch.
+    output_mode = "append"
 
     try:
         writer = df.writeStream \
@@ -418,7 +415,7 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
 
 
 def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path,
-                 region='ap-south-1', window_minutes=2, watermark_minutes=0.5,
+                 region='ap-south-2', window_minutes=2, watermark_minutes=0.5,
                  checkpoint_path='/tmp/spark_checkpoints', use_localstack=False,
                  trigger_mode='continuous'):
     """
@@ -493,7 +490,7 @@ def main():
     parser.add_argument('--songs-path', required=True)
     parser.add_argument('--users-path', required=True)
     parser.add_argument('--output-path', required=True)
-    parser.add_argument('--region', default='ap-south-1')
+    parser.add_argument('--region', default='ap-south-2')
     parser.add_argument('--window-minutes', type=float, default=5)
     parser.add_argument('--watermark-minutes', type=float, default=1)
     parser.add_argument('--checkpoint-path', default='/tmp/spark_checkpoints')

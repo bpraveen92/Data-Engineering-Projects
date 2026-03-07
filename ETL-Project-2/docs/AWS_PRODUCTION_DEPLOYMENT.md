@@ -100,7 +100,7 @@ I set up all the AWS infrastructure manually through the console for this projec
 
 ## Step 1: Create the S3 bucket and upload everything
 
-The bucket name I'm using is `pravbala-de-etl-project-emr` in `ap-south-1`. You'll need to create that first through the AWS Console if it doesn't already exist.
+The bucket name I'm using is `pravbala-de-etl-project-emr` in `ap-south-2`. You'll need to create that first through the AWS Console if it doesn't already exist.
 
 The folder layout inside the bucket for this project:
 
@@ -126,22 +126,22 @@ Upload with:
 ```bash
 aws s3 cp scripts/spark_aggregator.py \
   s3://pravbala-de-etl-project-emr/Project-2/scripts/spark_aggregator.py \
-  --region ap-south-1
+  --region ap-south-2
 
 aws s3 cp sample_data_initial_load/songs.csv \
   s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/songs.csv \
-  --region ap-south-1
+  --region ap-south-2
 
 aws s3 cp sample_data_initial_load/users.csv \
   s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/users.csv \
-  --region ap-south-1
+  --region ap-south-2
 
 # S3A support JARs (not in the repo — download from Maven Central or Apache)
 aws s3 cp jars/hadoop-aws-3.3.4.jar \
-  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-1
+  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-2
 
 aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar \
-  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-1
+  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-2
 ```
 
 The `aggregations/` and `checkpoints/` prefixes don't need to be created manually — Spark creates them on the first write.
@@ -153,7 +153,7 @@ The `aggregations/` and `checkpoints/` prefixes don't need to be created manuall
 Through the Kinesis console, create a stream with these settings:
 
 - **Stream name:** `music-streams`
-- **Region:** `ap-south-1`
+- **Region:** `ap-south-2`
 - **Capacity mode:** Provisioned
 - **Shard count:** 1
 
@@ -212,7 +212,7 @@ Which expands to:
 ```bash
 python3 scripts/kinesis_stream_producer.py \
   --stream-name music-streams \
-  --region ap-south-1 \
+  --region ap-south-2 \
   --batch-size 20 \
   --interval-seconds 5.0
   # No --local flag here — this hits real AWS
@@ -265,7 +265,7 @@ The execution role needs `emr-serverless:StartJobRun` permission in addition to 
 {
   "Effect": "Allow",
   "Action": "emr-serverless:StartJobRun",
-  "Resource": "arn:aws:emr-serverless:ap-south-1:<account-id>:/applications/<app-id>"
+  "Resource": "arn:aws:emr-serverless:ap-south-2:<account-id>:/applications/<app-id>"
 }
 ```
 
@@ -303,7 +303,7 @@ After the first job run completes, check S3:
 
 ```bash
 aws s3 ls s3://pravbala-de-etl-project-emr/Project-2/aggregations/ \
-  --recursive --region ap-south-1
+  --recursive --region ap-south-2
 ```
 
 You should see three table partitions, one per window that closed during the run:

@@ -43,7 +43,7 @@ It's useful to have this side by side before jumping into the steps:
 If you've already worked through the EMR Serverless guide, you're mostly set. The S3 assets and Kinesis stream are shared:
 
 - **S3 bucket** created and assets uploaded (script, JARs, dimension CSVs) — same as EMR Step 1.
-  > **Note:** The original bucket (`pravbala-de-etl-project-emr`) has been deleted. Create a new bucket in `ap-south-1` and update the paths in `.env` (`S3_BUCKET`) and in the Glue job parameters (Step 2) before deploying.
+  > **Note:** The original bucket (`pravbala-de-etl-project-emr`) has been deleted. Create a new bucket in `ap-south-2` and update the paths in `.env` (`S3_BUCKET`) and in the Glue job parameters (Step 2) before deploying.
 - Kinesis stream `music-streams` active — same as EMR Step 2
 - AWS CLI configured (`aws configure`)
 
@@ -84,7 +84,7 @@ Go to the Glue console → ETL Jobs → Create job → Spark script editor. This
 | Glue version | Glue 4.0 (Spark 3.3, Python 3) |
 | IAM Role | `etl-project-2` |
 | Script location | `s3://pravbala-data-engineering-projects/Project-2/scripts/spark_aggregator.py` |
-| Temporary directory | `s3://aws-glue-assets-<account-id>-ap-south-1/temporary/` |
+| Temporary directory | `s3://aws-glue-assets-<account-id>-ap-south-2/temporary/` |
 | Worker type | G.1X |
 | Number of workers | 2 |
 | Max concurrent runs | 1 |
@@ -108,7 +108,7 @@ s3://pravbala-data-engineering-projects/Project-2/jars/hadoop-aws-3.3.4.jar,s3:/
 | `--users-path` | `s3://pravbala-data-engineering-projects/Project-2/sample_data_initial_load/users.csv` |
 | `--output-path` | `s3://pravbala-data-engineering-projects/Project-2/aggregations` |
 | `--checkpoint-path` | `s3a://pravbala-data-engineering-projects/Project-2/checkpoints` |
-| `--region` | `ap-south-1` |
+| `--region` | `ap-south-2` |
 | `--window-minutes` | `5` |
 | `--watermark-minutes` | `1` |
 | `--trigger-mode` | `continuous` |
@@ -178,7 +178,7 @@ Which expands to:
 ```bash
 python3 scripts/kinesis_stream_producer.py \
   --stream-name music-streams \
-  --region ap-south-1 \
+  --region ap-south-2 \
   --batch-size 20 \
   --interval-seconds 5.0
   # No --local flag — this targets real AWS

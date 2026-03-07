@@ -241,7 +241,7 @@ def main():
     )
     parser.add_argument('--stream-name', required=True,
                         help='Kinesis stream name')
-    parser.add_argument('--region', default='ap-south-1', help='AWS region')
+    parser.add_argument('--region', default='ap-south-2', help='AWS region')
     parser.add_argument(
         '--csv-file', default='sample_data_initial_load/streams.csv')
     parser.add_argument('--batch-size', type=int,

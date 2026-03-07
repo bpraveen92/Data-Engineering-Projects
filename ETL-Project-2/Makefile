@@ -48,7 +48,7 @@ producer:
 aws-producer:
 	python3 scripts/kinesis_stream_producer.py \
 		--stream-name music-streams \
-		--region ap-south-1 \
+		--region ap-south-2 \
 		--batch-size 20 \
 		--interval-seconds 5.0 \
 		> /tmp/aws-producer.log 2>&1 &
@@ -88,13 +88,13 @@ emr-upload:
 	# Create a new bucket and update the S3 paths below before running this target.
 	# Also update .env S3_BUCKET and the emr-start target accordingly.
 	@echo "Uploading jars to S3 (S3A support jars only — Kinesis connector is bundled in EMR 7.1.0+)..."
-	aws s3 cp jars/hadoop-aws-3.3.4.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-1
-	aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-1
+	aws s3 cp jars/hadoop-aws-3.3.4.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-2
+	aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-2
 	@echo "Uploading script to S3..."
-	aws s3 cp scripts/spark_aggregator.py s3://$${S3_BUCKET}/Project-2/scripts/ --region ap-south-1
+	aws s3 cp scripts/spark_aggregator.py s3://$${S3_BUCKET}/Project-2/scripts/ --region ap-south-2
 	@echo "Uploading reference data to S3..."
-	aws s3 cp sample_data_initial_load/songs.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-1
-	aws s3 cp sample_data_initial_load/users.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-1
+	aws s3 cp sample_data_initial_load/songs.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-2
+	aws s3 cp sample_data_initial_load/users.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-2
 	@echo "Upload complete."
 
 emr-start:
@@ -105,35 +105,35 @@ emr-start:
 	aws emr-serverless start-job-run \
 		--application-id $${EMR_APP_ID} \
 		--execution-role-arn $${EMR_EXECUTION_ROLE_ARN} \
-		--region ap-south-1 \
+		--region ap-south-2 \
 		--no-cli-pager \
-		--job-driver '{"sparkSubmit":{"entryPoint":"s3://$${S3_BUCKET}/Project-2/scripts/spark_aggregator.py","entryPointArguments":["--kinesis-stream","music-streams","--songs-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/songs.csv","--users-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/users.csv","--output-path","s3://$${S3_BUCKET}/Project-2/aggregations","--checkpoint-path","s3://$${S3_BUCKET}/Project-2/checkpoints","--region","ap-south-1","--window-minutes","5","--watermark-minutes","1","--trigger-mode","available_now"],"sparkSubmitParameters":"--jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar,s3://$${S3_BUCKET}/Project-2/jars/hadoop-aws-3.3.4.jar,s3://$${S3_BUCKET}/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar --conf spark.sql.shuffle.partitions=4"}}'
+		--job-driver '{"sparkSubmit":{"entryPoint":"s3://$${S3_BUCKET}/Project-2/scripts/spark_aggregator.py","entryPointArguments":["--kinesis-stream","music-streams","--songs-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/songs.csv","--users-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/users.csv","--output-path","s3://$${S3_BUCKET}/Project-2/aggregations","--checkpoint-path","s3://$${S3_BUCKET}/Project-2/checkpoints","--region","ap-south-2","--window-minutes","5","--watermark-minutes","1","--trigger-mode","available_now"],"sparkSubmitParameters":"--jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar,s3://$${S3_BUCKET}/Project-2/jars/hadoop-aws-3.3.4.jar,s3://$${S3_BUCKET}/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar --conf spark.sql.shuffle.partitions=4"}}'
 	@echo "EMR Serverless job submitted. Check status: make emr-status"
 
 emr-status:
 	aws emr-serverless list-job-runs \
 		--application-id $${EMR_APP_ID} \
-		--region ap-south-1 \
+		--region ap-south-2 \
 		--no-cli-pager \
 		--query 'jobRuns[0].{State:state,Created:createdAt,Updated:updatedAt,Id:jobRunId}'
 
 emr-list-apps:
 	aws emr-serverless list-applications \
-		--region ap-south-1 \
+		--region ap-south-2 \
 		--no-cli-pager \
 		--query 'applications[*].{Id:id,Name:name,State:state,Type:type}'
 
 glue-start:
 	aws glue start-job-run \
 		--job-name etl-project-2-streaming \
-		--region ap-south-1 \
+		--region ap-south-2 \
 		--no-cli-pager
-	@echo "Glue job started. Monitor: https://ap-south-1.console.aws.amazon.com/glue/home?region=ap-south-1#/monitoring"
+	@echo "Glue job started. Monitor: https://ap-south-2.console.aws.amazon.com/glue/home?region=ap-south-2#/monitoring"
 
 glue-status:
 	aws glue get-job-runs \
 		--job-name etl-project-2-streaming \
-		--region ap-south-1 \
+		--region ap-south-2 \
 		--no-cli-pager \
 		--query 'JobRuns[0].{State:JobRunState,Started:StartedOn,Duration:ExecutionTime,Error:ErrorMessage}'
 

@@ -33,7 +33,7 @@ localstack:
     - DEBUG=0
     - AWS_ACCESS_KEY_ID=test
     - AWS_SECRET_ACCESS_KEY=test
-    - AWS_DEFAULT_REGION=ap-south-1
+    - AWS_DEFAULT_REGION=ap-south-2
   ports:
     - "4566:4566"
   volumes:
@@ -47,7 +47,7 @@ localstack:
 # docker-compose.yml — spark service environment
 - AWS_ACCESS_KEY_ID=test
 - AWS_SECRET_ACCESS_KEY=test
-- AWS_DEFAULT_REGION=ap-south-1
+- AWS_DEFAULT_REGION=ap-south-2
 - KINESIS_ENDPOINT=http://etl-project-2-localstack:4566
 ```
 
@@ -155,7 +155,7 @@ The Spark container has its values set directly in `docker-compose.yml` (using i
 # AWS credentials (fake values for LocalStack)
 AWS_ACCESS_KEY_ID=test
 AWS_SECRET_ACCESS_KEY=test
-AWS_DEFAULT_REGION=ap-south-1
+AWS_DEFAULT_REGION=ap-south-2
 
 # MinIO (S3A filesystem)
 S3_ENDPOINT=http://localhost:9000
@@ -175,8 +175,8 @@ KINESIS_ENDPOINT=http://localhost:4566
 | Cost | Free | Pay per request |
 | Credentials | `test/test`, `minioadmin/minioadmin` | Real IAM keys |
 | Endpoint | `localhost:PORT` | `service.region.amazonaws.com` |
-| Kinesis | `etl-project-2-localstack:4566` | `kinesis.ap-south-1.amazonaws.com` |
-| S3 | `etl-project-2-minio:9000` | `s3.ap-south-1.amazonaws.com` |
+| Kinesis | `etl-project-2-localstack:4566` | `kinesis.ap-south-2.amazonaws.com` |
+| S3 | `etl-project-2-minio:9000` | `s3.ap-south-2.amazonaws.com` |
 | Data persistence | Docker named volume | AWS managed |
 | Internet required | No | Yes |
 | Debugging | Local container logs | CloudWatch |

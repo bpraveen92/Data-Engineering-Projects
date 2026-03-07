@@ -272,5 +272,5 @@ Both `make producer` and `make consumer` run inside `etl-project-2-spark` via `d
 ---
 
 **Built with**: PySpark 3.5 · LocalStack · MinIO · Docker  
-**Region**: `ap-south-1`  
+**Region**: `ap-south-2`  
 **Status**: Fully tested locally · EMR Serverless and Glue deployment documented

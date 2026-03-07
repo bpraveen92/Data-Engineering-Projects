@@ -5,7 +5,7 @@ Issues encountered deploying this PySpark Structured Streaming pipeline — firs
 | Component | Local Docker | AWS EMR Serverless |
 |-----------|-------------|----------|
 | Runtime | Docker Desktop (Mac) | EMR 7.12.0 · Spark 3.5 · Python 3 |
-| Kinesis | LocalStack `etl-project-2-localstack:4566` | Real stream `music-streams`, `ap-south-1` |
+| Kinesis | LocalStack `etl-project-2-localstack:4566` | Real stream `music-streams`, `ap-south-2` |
 | S3 | MinIO `etl-project-2-minio:9000` | `pravbala-data-engineering-projects` (recreate — original bucket deleted) |
 | Credentials | Fake (`test/test`, `minioadmin/minioadmin`) | IAM role `etl-project-2-emr-execution` |
 | Logs | Container stdout / `/tmp/consumer.log` | CloudWatch Logs |
@@ -72,7 +72,7 @@ if use_localstack:
     options["kinesis.kinesisRegion"] = region  # bypass URL-parsing fallback in v1.4.2
 ```
 
-`kinesis.region` and `kinesis.kinesisRegion` accept the same value (e.g. `"ap-south-1"`). Setting
+`kinesis.region` and `kinesis.kinesisRegion` accept the same value (e.g. `"ap-south-2"`). Setting
 both means `KinesisOptions.apply()` never falls back to `getRegionNameByEndpoint()` for either field.
 
 **References**
