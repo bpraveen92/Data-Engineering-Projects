@@ -119,15 +119,7 @@ Inside the container the default falls back to the container hostname. Outside, 
 
 ## Development Workflow
 
-For the full step-by-step run guide with expected output, see [`EXECUTION.md`](EXECUTION.md). The short version:
-
-```bash
-make up          # start containers
-# create MinIO buckets (see EXECUTION.md Step 2)
-make producer    # start event generator
-make consumer    # start Spark aggregator (new terminal)
-make down        # stop everything
-```
+For the full step-by-step run guide with expected output, see [`EXECUTION.md`](EXECUTION.md).
 
 ---
 
@@ -177,20 +169,6 @@ If you run into errors while setting up or running the local stack, see [`TROUBL
 
 ## Quick Reference
 
-### Commands
-
-```bash
-make up          # start all containers
-make down        # stop containers and wipe volumes
-make logs        # tail docker-compose logs
-make test        # run unit tests
-make clean       # stop containers, remove built images, delete __pycache__
-make producer    # run Kinesis producer inside etl-project-2-spark (docker exec)
-make consumer    # run Spark aggregator inside etl-project-2-spark (docker exec, writes to s3a://etl-project-2-data/aggregations/)
-```
-
-Both `make producer` and `make consumer` run entirely inside the Docker environment — no local Python or Spark required.
-
 ### Kinesis Metadata Path
 
 The Kinesis connector requires a `kinesis.metadataPath` — a durable location where it persists shard offsets between micro-batches. In this project `read_kinesis()` derives the path automatically:
@@ -198,11 +176,11 @@ The Kinesis connector requires a `kinesis.metadataPath` — a durable location w
 | Environment | `kinesis.metadataPath` |
 |-------------|------------------------|
 | **Local** | `{checkpoint_path}/kinesis-metadata-{suffix}` → e.g. `s3a://etl-project-2-data/checkpoints/kinesis-metadata-hourly` |
-| **Production (Glue)** | `s3a://pravbala-data-engineering-projects/Project-2/checkpoints/kinesis-metadata-{suffix}` |
+| **Production** | `s3a://pravbala-data-engineering-projects/Project-2/checkpoints/kinesis-metadata-{suffix}` |
 
-The local path is driven by the `--checkpoint-path` argument passed in `make consumer` (`s3a://etl-project-2-data/checkpoints`). Both Spark checkpoints and connector metadata land under the same root, so a full reset only requires deleting the `checkpoints/` prefix in MinIO.
+The local path is driven by the `--checkpoint-path` argument passed in `make consumer`. Both Spark checkpoints and connector metadata land under the same root, so a full reset only requires deleting the `checkpoints/` prefix in MinIO.
 
-> **Each of the 3 streaming queries gets its own unique suffix** (`hourly`, `top_tracks`, `country`) to avoid metadata conflicts — see TROUBLESHOOTING.md G4 for details.
+> **Each of the 3 streaming queries gets its own unique suffix** (`hourly`, `top_tracks`, `country`) to avoid metadata conflicts — see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) G4 for details.
 
 ### Access Points
 
