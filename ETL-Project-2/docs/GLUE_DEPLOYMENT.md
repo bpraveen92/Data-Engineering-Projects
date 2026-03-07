@@ -118,9 +118,49 @@ A few things worth calling out here because they're easy to get wrong:
 
 **`--songs-path` and `--users-path` use `s3://`** — not `s3a://`. These static CSV reads go through Glue's native S3 filesystem via `spark.read.csv()`, which handles `s3://` correctly. Using `s3a://` for these would break them on Glue. So yes — the same job uses `s3://` for some paths and `s3a://` for others. It's not intuitive, but the connector forces your hand. The full explanation is in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
 
----
+## How windowing works in continuous mode
 
-## Step 3: Run the Producer from Your Local Machine
+In Glue's `continuous` mode the job never exits, so Spark processes micro-batches on a rolling cadence rather than draining a backlog in one shot. This changes when windows close and when output appears in S3.
+
+With our config — 5-minute windows, 1-minute watermark — here's the real-time behaviour:
+
+```
+10:00:05  micro-batch: reads ~30s of events (timestamps ~09:59–10:00)
+10:00:35  micro-batch: reads ~30s of events (timestamps ~10:00)
+10:01:05  micro-batch: reads ~30s of events
+...
+10:06:05  watermark advances past 10:06:00
+          → window 10:00:00–10:05:00 closes → Parquet written to S3
+10:06:35  micro-batch continues...
+10:11:05  watermark advances past 10:11:00
+          → window 10:05:00–10:10:00 closes → Parquet written to S3
+```
+
+Each window appears in S3 roughly **1–2 minutes after its end time**. There's no "last window" ambiguity — as long as the job is running and events keep arriving, the watermark keeps advancing and windows keep closing in near real-time.
+
+### What this looks like in S3 over time
+
+```
+10:06  → aggregations/hourly_streams/window_start=2026-03-07 10:00:00/ appears
+10:11  → aggregations/hourly_streams/window_start=2026-03-07 10:05:00/ appears
+10:16  → aggregations/hourly_streams/window_start=2026-03-07 10:10:00/ appears
+...    (same pattern for top_tracks_hourly and country_metrics_hourly)
+```
+
+### How this compares to EMR Serverless scheduled mode
+
+The key difference is that EMR reads the whole 30-minute backlog in a single run, which means the watermark advances rapidly through historical event time rather than tracking real time. Windows that would take 30+ minutes to close in Glue all close within the same EMR run (except the trailing window, which carries over to the next run).
+
+For a full walkthrough of the EMR windowing mechanics — including the trailing window behaviour, checkpoint state across runs, and a worked example — see the [How windowing works across scheduled EMR runs](AWS_PRODUCTION_DEPLOYMENT.md#how-windowing-works-across-scheduled-emr-runs) section in `AWS_PRODUCTION_DEPLOYMENT.md`.
+
+| | Glue Streaming (this guide) | EMR Serverless (scheduled) |
+|---|---|---|
+| **Output latency** | ~1–2 min after window closes | Up to 36 min (schedule + window + watermark) |
+| **Trailing window** | Closes naturally as new events arrive | Held in checkpoint, flushed on next run |
+| **Watermark advances** | Tracks real time — 1 min per 1 min | Tracks event time — 30 min of events in minutes |
+| **State continuity** | In-memory, uninterrupted | Persisted to S3 checkpoint between runs |
+
+---
 
 Same as the EMR setup — the producer runs on your Mac directly against the real Kinesis stream:
 
@@ -196,7 +236,7 @@ S3 and Kinesis setup are shared with the EMR guide — no need to repeat them he
 
 ## Troubleshooting
 
-All the Kinesis connector quirks I hit during the original Glue deployment are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). The ones most likely to catch you out on Glue specifically:
+All the Kinesis connector related problems I faced during the original Glue deployment are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). The ones most likely to catch you out on Glue specifically:
 
 - **G1:** Why the script uses `parse_known_args()` instead of `parse_args()` — Glue injects its own args at runtime (`--JOB_NAME`, `--JOB_RUN_ID`, `--TempDir`, etc.) that aren't in our argparse definition. `parse_args()` crashes on them. Already handled in the script, just explaining why it's there.
 - **G2:** `kinesis.endpointUrl` has to be set explicitly even against real AWS — the connector doesn't default to the regional endpoint.

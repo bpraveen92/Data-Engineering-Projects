@@ -119,46 +119,48 @@ def get_kinesis_schema():
     ])
 
 
-def read_kinesis(spark, kinesis_stream, region='ap-south-2', use_localstack=False, metadata_suffix='default', checkpoint_path=None):
+def read_kinesis(spark, kinesis_stream, region='ap-south-1', use_localstack=False, metadata_suffix='default', checkpoint_path=None):
     """
-    Read streaming data from Kinesis.
+    Read streaming data from Kinesis using the AWS-native connector.
+
+    On EMR 7.1.0+ the awslabs spark-sql-kinesis-connector is bundled in the
+    runtime image — no --jars flag needed.  The format string is "aws-kinesis".
+
+    Key differences vs the community v1.0.0 connector:
+      - Option name is "kinesis.startingPosition" (not "kinesis.initialPosition")
+      - "TRIM_HORIZON" is correctly honoured even with availableNow trigger
+      - No separate "kinesis.metadataPath" required — standard Spark checkpoint
+        directory is sufficient
+      - "kinesis.kinesisRegion" is not needed; "kinesis.region" is the sole key
 
     Args:
         spark: SparkSession object.
         kinesis_stream: Kinesis stream name.
         region: AWS region.
         use_localstack: If True, override endpoints to use LocalStack.
-        metadata_suffix: Unique suffix for kinesis.metadataPath — each concurrent
-            writeStream query must have its own metadata directory to avoid
-            "Unable to fetch committed metadata" errors on restart.
-        checkpoint_path: Base checkpoint path. Used to derive the metadataPath for
-            local runs. Defaults to production S3 path.
+        metadata_suffix: Unused — kept for call-site compatibility. The awslabs
+            connector derives its metadata location from the per-query checkpoint
+            directory, so no explicit suffix is required.
+        checkpoint_path: Unused at read time for the awslabs connector (kept for
+            API compatibility).
 
     Returns:
         Streaming DataFrame of raw Kinesis records.
     """
     logger.info(
-        f"Reading from Kinesis stream: {kinesis_stream} (metadata_suffix={metadata_suffix})")
-
-    if use_localstack and checkpoint_path:
-        metadata_path = f"{checkpoint_path}/kinesis-metadata-{metadata_suffix}"
-    else:
-        metadata_path = f"s3a://pravbala-data-engineering-projects/Project-2/checkpoints/kinesis-metadata-{metadata_suffix}"
+        f"Reading from Kinesis stream: {kinesis_stream} (region={region})")
 
     options = {
         "kinesis.streamName": kinesis_stream,
-        "kinesis.initialPosition": "TRIM_HORIZON",
-        # Both keys required: connector layer uses kinesis.region, AWS SDK inside
-        # the connector uses kinesis.kinesisRegion (see TROUBLESHOOTING.md L2).
+        # awslabs connector option name — correctly honours TRIM_HORIZON with
+        # availableNow trigger (unlike the community v1.0.0 connector).
+        "kinesis.startingPosition": "TRIM_HORIZON",
         "kinesis.region": region,
-        "kinesis.kinesisRegion": region,
-        # Connector v1.0.0 does not auto-derive the endpoint — must be set
-        # explicitly even for real AWS (see TROUBLESHOOTING.md G2).
+        # Required — no auto-resolution fallback; private DNS on EMR Serverless
+        # resolves this to the Kinesis VPC Interface Endpoint ENI.
         "kinesis.endpointUrl": f"https://kinesis.{region}.amazonaws.com",
-        # s3a:// path required so the HDFSMetadataCommitter uses the configured
-        # filesystem; persists metadata across restarts (see TROUBLESHOOTING.md G3-G5).
-        # Each concurrent query must have a unique suffix to avoid metadata conflicts.
-        "kinesis.metadataPath": metadata_path,
+        # Use polling (GetRecords) consumer — no EFO registration needed.
+        "kinesis.consumerType": "GetRecords",
     }
 
     if use_localstack:
@@ -176,14 +178,16 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-2', use_localstack=Fals
 
         options.update({
             "kinesis.endpointUrl": endpoint,
-            # Disable SSL checks — LocalStack serves plain HTTP.
-            "kinesis.verifyCertificate": "false",
-            "kinesis.allowUnauthorizedSsl": "true",
         })
 
+    # Use the short name "aws-kinesis" — this works because the awslabs connector
+    # jar is passed via --jars using its local path on the EMR image:
+    #   /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
+    # That jar's META-INF/services registers "aws-kinesis" via ServiceLoader so
+    # the short name resolves correctly once the jar is on the classpath.
     df = (
         spark.readStream
-        .format("org.apache.spark.sql.connector.kinesis.KinesisV2TableProvider")
+        .format("aws-kinesis")
         .options(**options)
         .load()
     )
@@ -355,7 +359,7 @@ def compute_country_metrics(df, window_minutes=2, watermark_minutes=0.5):
     )
 
 
-def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpoints'):
+def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpoints', trigger_mode='continuous'):
     """
     Write a streaming aggregation to S3/MinIO using foreachBatch for file compaction.
 
@@ -367,6 +371,10 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
         output_path: Base S3 path (e.g. s3a://bucket/aggregations).
         table_name: Sub-directory name for this table's output.
         checkpoint_path: Checkpoint root directory for recovery.
+        trigger_mode: 'continuous' (default) — runs forever, suitable for Glue streaming
+                      or a long-running EMR job. 'available_now' — drains all records
+                      currently in Kinesis then exits cleanly; suitable for EMR Serverless
+                      scheduled via EventBridge (trigger once every N minutes).
 
     Returns:
         StreamingQuery object.
@@ -395,13 +403,34 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
             .partitionBy("window_start") \
             .parquet(f"{output_path}/{table_name}")
 
-    logger.info(f"Writing {table_name} to {output_path}/{table_name}...")
+    logger.info(
+        f"Writing {table_name} to {output_path}/{table_name} (trigger_mode={trigger_mode})...")
+
+    # Output mode selection:
+    # - "update": emit all updated window states every micro-batch, regardless of watermark.
+    #   Required for availableNow (EMR batch) — because availableNow terminates after the last
+    #   real batch and never issues a trailing empty batch to advance the watermark past the
+    #   final window boundary. With "append", those last windows would silently be dropped.
+    # - "append": only emit a window after watermark confirms it's fully closed. Correct for
+    #   continuous Glue streaming where the job never exits and the watermark keeps advancing.
+    output_mode = "update" if trigger_mode == 'available_now' else "append"
+
     try:
-        query = df.writeStream \
-            .outputMode("append") \
+        writer = df.writeStream \
+            .outputMode(output_mode) \
             .option("checkpointLocation", f"{checkpoint_path}/{table_name}") \
-            .foreachBatch(write_batch) \
-            .start()
+            .foreachBatch(write_batch)
+
+        if trigger_mode == 'available_now':
+            # Process all records currently available in Kinesis then stop.
+            # Used with EMR Serverless scheduled jobs (EventBridge every N minutes):
+            # each run drains the backlog since the last checkpoint and exits,
+            # so compute scales to zero between runs.
+            writer = writer.trigger(availableNow=True)
+        # else: no trigger() call → default continuous micro-batch (Glue streaming
+        # or long-running EMR job).
+
+        query = writer.start()
         logger.info(f"Query started for {table_name}: {query.id}")
         return query
     except Exception as e:
@@ -410,7 +439,7 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
         raise
 
 
-def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, region='ap-south-2', window_minutes=2, watermark_minutes=0.5, checkpoint_path='/tmp/spark_checkpoints', use_localstack=False):
+def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, region='ap-south-1', window_minutes=2, watermark_minutes=0.5, checkpoint_path='/tmp/spark_checkpoints', use_localstack=False, trigger_mode='continuous'):
     """
     Execute the end-to-end streaming pipeline.
 
@@ -429,6 +458,7 @@ def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, reg
         watermark_minutes: Late-data watermark in minutes.
         checkpoint_path: Checkpoint root directory.
         use_localstack: If True, routes Kinesis reads to LocalStack.
+        trigger_mode: 'continuous' or 'available_now' — see write_to_s3() docstring.
     """
     try:
         logger.info("Starting streaming aggregation pipeline...")
@@ -436,32 +466,28 @@ def run_pipeline(spark, kinesis_stream, songs_path, users_path, output_path, reg
         songs = load_songs(spark, songs_path)
         users = load_users(spark, users_path)
 
-        # Each aggregation query gets its own Kinesis read with a unique
-        # kinesis.metadataPath suffix. Sharing a single raw DataFrame across
-        # multiple writeStream.start() calls causes each query's
-        # KinesisV2MicrobatchStream to compete for the same metadata directory,
-        # producing "Unable to fetch committed metadata from previous batch id 0".
-        def make_enriched(suffix):
-            raw = read_kinesis(spark, kinesis_stream, region,
-                               use_localstack, metadata_suffix=suffix,
-                               checkpoint_path=checkpoint_path)
-            events = parse_events(raw)
-            return enrich_events(events, songs, users)
+        # The awslabs connector (EMR 7.1.0+ native) manages its shard metadata
+        # inside the per-query checkpoint directory, so a single shared Kinesis
+        # read can safely fan out to multiple writeStream.start() calls.
+        raw = read_kinesis(spark, kinesis_stream, region,
+                           use_localstack, checkpoint_path=checkpoint_path)
+        events = parse_events(raw)
+        enriched = enrich_events(events, songs, users)
 
         hourly = compute_hourly_streams(
-            make_enriched("hourly"), window_minutes, watermark_minutes)
+            enriched, window_minutes, watermark_minutes)
         top_tracks = compute_top_tracks(
-            make_enriched("top_tracks"), window_minutes, watermark_minutes)
+            enriched, window_minutes, watermark_minutes)
         country = compute_country_metrics(
-            make_enriched("country"), window_minutes, watermark_minutes)
+            enriched, window_minutes, watermark_minutes)
 
         queries = [
             write_to_s3(hourly, output_path,
-                        "hourly_streams", checkpoint_path),
+                        "hourly_streams", checkpoint_path, trigger_mode),
             write_to_s3(top_tracks, output_path,
-                        "top_tracks_hourly", checkpoint_path),
+                        "top_tracks_hourly", checkpoint_path, trigger_mode),
             write_to_s3(country, output_path,
-                        "country_metrics_hourly", checkpoint_path),
+                        "country_metrics_hourly", checkpoint_path, trigger_mode),
         ]
         logger.info(
             f"All {len(queries)} streaming queries started, awaiting termination...")
@@ -482,10 +508,17 @@ def main():
     parser.add_argument('--songs-path', required=True)
     parser.add_argument('--users-path', required=True)
     parser.add_argument('--output-path', required=True)
-    parser.add_argument('--region', default='ap-south-2')
+    parser.add_argument('--region', default='ap-south-1')
     parser.add_argument('--window-minutes', type=float, default=5)
     parser.add_argument('--watermark-minutes', type=float, default=1)
     parser.add_argument('--checkpoint-path', default='/tmp/spark_checkpoints')
+    parser.add_argument('--trigger-mode', default='continuous',
+                        choices=['continuous', 'available_now'],
+                        help=(
+                            'continuous: run forever (default — Glue streaming or long-running EMR). '
+                            'available_now: drain current Kinesis backlog then exit cleanly '
+                            '(EMR Serverless scheduled via EventBridge every N minutes).'
+                        ))
     parser.add_argument('--local', action='store_true', help='Use LocalStack')
 
     # parse_known_args() instead of parse_args() so that Glue's internally
@@ -508,7 +541,8 @@ def main():
             window_minutes=args.window_minutes,
             watermark_minutes=args.watermark_minutes,
             checkpoint_path=args.checkpoint_path,
-            use_localstack=args.local
+            use_localstack=args.local,
+            trigger_mode=args.trigger_mode,
         )
     except Exception as e:
         logger.error(f"Failed: {e}")

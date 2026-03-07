@@ -201,15 +201,56 @@ Logs stream to CloudWatch under `/aws/emr-serverless/applications/<app-id>`. If 
 
 ## Step 7: Set up the EventBridge schedule
 
-Manually running `make emr-start` every 30 minutes is obviously not a production workflow. Create an EventBridge Scheduler rule to automate it:
+Manually running `make emr-start` every 30 minutes is obviously not a production workflow. EventBridge Scheduler is what makes the whole thing autonomous — it fires a `StartJobRun` API call directly against EMR Serverless on a fixed cadence, no Lambda or intermediary needed.
 
-- **Schedule expression:** `rate(30 minutes)`
-- **Target:** EMR Serverless → Start Job Run
-- **Application ID:** your app ID from Step 4
-- **Execution role:** `etl-project-2-emr-execution`
-- **Job driver parameters:** same as Step 6
+Go to **EventBridge → Schedules → Create schedule**:
 
-Once this is live, the pipeline is fully autonomous. EventBridge fires every 30 minutes, EMR spins up, processes the backlog, writes Parquet, saves the checkpoint, and dies. You get billed for maybe 2–3 minutes of actual compute per run.
+| Setting | Value |
+|---------|-------|
+| Schedule name | `etl-project-2-emr-30min` |
+| Schedule type | Recurring → Rate-based |
+| Rate expression | `rate(30 minutes)` |
+| Flexible time window | Off (run at exactly the scheduled time) |
+| Target API | EMR Serverless → `StartJobRun` |
+| Application ID | your app ID from Step 4 |
+| Execution role (for EventBridge) | `etl-project-2-emr-execution` |
+| Job driver | same JSON payload as Step 6 — paste it in directly |
+
+The execution role needs `emr-serverless:StartJobRun` permission in addition to the S3/Kinesis/CloudWatch policies. If you're reusing `etl-project-2-emr-execution`, attach an inline policy:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "emr-serverless:StartJobRun",
+  "Resource": "arn:aws:emr-serverless:ap-south-2:<account-id>:/applications/<app-id>"
+}
+```
+
+**How the invocation chain works:**
+
+```
+EventBridge Scheduler (rate: 30 min)
+        │
+        │  StartJobRun API call
+        ▼
+EMR Serverless Application (etl-project-2)
+        │
+        │  spins up Spark driver + executors (~30–60s cold start)
+        ▼
+spark_aggregator.py --trigger-mode available_now
+        │
+        │  reads checkpoint → determines last committed shard offset
+        │  reads Kinesis records since that offset
+        │  runs aggregations → writes Parquet → saves checkpoint
+        ▼
+Job exits cleanly → workers deallocated → billing stops
+        │
+        │  30 min later
+        ▼
+EventBridge fires again → repeat
+```
+
+EventBridge doesn't wait for the job to finish before scheduling the next one — it fires on a wall-clock schedule regardless. If a run takes longer than 30 minutes (unlikely for this data volume, but worth knowing), the next run will start while the previous one is still going. Setting **Max concurrent runs = 1** on the EMR application prevents two jobs from fighting over the same checkpoint.
 
 ---
 
@@ -231,6 +272,100 @@ You should see three table partitions, one per window that closed during the run
 ```
 
 Each partition contains a single compacted Parquet file — the `foreachBatch` + `coalesce` logic in `write_to_s3()` handles that so we don't end up with hundreds of 2KB fragments per window.
+
+---
+
+## How windowing works across scheduled EMR runs
+
+This is the part that confused me most when I first set this up, so it's worth walking through carefully. The window behaviour in EMR Serverless scheduled mode is fundamentally different from Glue's always-on continuous mode — and understanding it is key to reasoning about what output you'll see after each run.
+
+### The setup
+
+The pipeline uses **5-minute tumbling windows** with a **1-minute watermark**. Events carry an embedded `timestamp` field, and Spark buckets them into windows based on that event time — not the time they're processed. The watermark tells Spark to wait up to 1 minute for late-arriving records before closing a window and flushing it to output.
+
+### What happens inside a single EMR run
+
+Say EventBridge fires at **10:30:00** and the last checkpoint was from the **10:00:00** run. The producer has been sending events continuously for 30 minutes, so Kinesis has ~3,600 records (20 events/batch × 5s interval × 360s) sitting in the shard waiting.
+
+When the EMR job starts:
+
+```
+Events in Kinesis shard (timestamps spread across 10:00–10:30):
+  [10:00:03, 10:00:08, 10:00:14, ..., 10:29:55, 10:29:58]
+        │
+        │  Spark reads ALL of these in a series of micro-batches
+        │  (trigger(availableNow=True) keeps reading until shard is drained)
+        ▼
+Micro-batch 1: reads ~200 records, timestamps mostly 10:00–10:05
+Micro-batch 2: reads ~200 records, timestamps mostly 10:05–10:10
+...
+Micro-batch N: reads remaining records, timestamps up to 10:29:58
+        │
+        │  Watermark advances as event time advances
+        │  Windows close once watermark passes window_end + 1 min
+        ▼
+Closed windows written to S3:
+  window_start=10:00:00  ← all events 10:00–10:05, fully flushed
+  window_start=10:05:00  ← all events 10:05–10:10, fully flushed
+  window_start=10:10:00  ← ...
+  window_start=10:15:00
+  window_start=10:20:00
+  window_start=10:25:00  ← events 10:25–10:30 (may be partial — see below)
+        │
+        ▼
+Job exits, checkpoint saved at shard offset reached end-of-stream
+```
+
+**The last window is the tricky one.** The window `10:25:00–10:30:00` may not close in this run if the watermark hasn't advanced past `10:31:00` (window_end + watermark). Any events with timestamps in `10:25–10:30` that arrived after the last micro-batch won't be in the shard yet, so Spark can't advance its watermark far enough to flush that window confidently. It holds the state in the checkpoint and carries it forward to the next run.
+
+### What the next run sees
+
+EventBridge fires again at **11:00:00**. The checkpoint now contains:
+- Committed shard offsets (reads from where the last run ended)
+- Pending aggregation state for the `10:25:00` window
+
+The new run picks up fresh records from Kinesis (10:30–11:00 timestamps), processes them, and the watermark now advances well past 10:31 — which finally closes and flushes the `10:25:00` window along with all the new ones.
+
+```
+Run at 10:30  →  writes windows: 10:00, 10:05, 10:10, 10:15, 10:20
+                                  (10:25 stays pending in checkpoint)
+Run at 11:00  →  writes windows: 10:25, 10:30, 10:35, 10:40, 10:45, 10:50, 10:55
+                                  (11:25 stays pending)
+Run at 11:30  →  writes windows: 11:00, 11:05, ...
+```
+
+This is correct and expected behaviour — **no data is lost or double-counted**. The checkpoint preserves the in-flight aggregation state across runs. The only observable effect is that the most recent window always appears one run late, which adds at most `schedule_interval + window_size + watermark` latency to the trailing edge — roughly 30 + 5 + 1 = **36 minutes** worst case for our config. Well within the 1-hour SLA.
+
+### How this compares to Glue's continuous mode
+
+In Glue, the job never exits. Spark processes micro-batches in a continuous loop:
+
+```
+Glue job running continuously:
+
+10:00:05  micro-batch fires, reads last ~30s of records
+10:00:35  micro-batch fires, reads last ~30s of records
+10:01:05  micro-batch fires...
+...
+10:05:35  watermark passes 10:06 → window 10:00:00 closes and flushes
+10:06:05  micro-batch fires...
+10:10:35  watermark passes 10:11 → window 10:05:00 closes and flushes
+```
+
+Windows close roughly 1 minute after their end time (watermark = 1 min), and new Parquet partitions appear in S3 within 1–2 minutes of a window closing. That's the sub-minute-to-output latency you get with Glue Streaming.
+
+### Side-by-side comparison
+
+| | EMR Serverless (scheduled) | Glue Streaming (continuous) |
+|---|---|---|
+| **When records are read** | All at once when the job runs (batch of batches) | Continuously, every ~30s micro-batch |
+| **When windows close** | When watermark advances far enough within the run | ~1 min after window end time, in real time |
+| **Output latency** | Up to schedule_interval + window + watermark (~36 min) | 1–2 minutes after window closes |
+| **Last window behaviour** | May appear one run late (state held in checkpoint) | Flushes as soon as watermark advances past it |
+| **State across runs** | Preserved in S3 checkpoint, restored on next run | In-memory, never interrupted |
+| **Data correctness** | Identical — event-time windowing, same watermark logic | Identical |
+
+The data correctness is the same either way — Spark's event-time windowing model doesn't care whether the records arrived in one batch or as a real-time stream. The difference is purely latency and cost.
 
 ---
 
