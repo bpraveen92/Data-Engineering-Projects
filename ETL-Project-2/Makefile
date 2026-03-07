@@ -1,30 +1,31 @@
-.PHONY: help up down logs producer consumer aws-producer emr-upload emr-start emr-status emr-list-apps glue-start glue-status test clean
+.PHONY: help up down logs producer consumer build-kinesis-jar aws-producer emr-upload emr-start emr-status emr-list-apps glue-start glue-status test clean
 
 help:
 	@echo ""
 	@echo "Local development:"
-	@echo "  make up              Start all 3 Docker containers (Spark, LocalStack, MinIO)"
-	@echo "  make down            Stop containers and remove volumes"
-	@echo "  make logs            Tail docker-compose logs"
-	@echo "  make producer        Run Kinesis producer inside Spark container (LocalStack)"
-	@echo "  make consumer        Run Spark aggregator inside Spark container (LocalStack + MinIO)"
+	@echo "  make up                Start all 3 Docker containers (Spark, LocalStack, MinIO)"
+	@echo "  make down              Stop containers and remove volumes"
+	@echo "  make logs              Tail docker-compose logs"
+	@echo "  make producer          Run Kinesis producer inside Spark container (LocalStack)"
+	@echo "  make consumer          Run Spark aggregator inside Spark container (LocalStack + MinIO)"
+	@echo "  make build-kinesis-jar Build the awslabs connector JAR from source (required for local consumer)"
 	@echo ""
 	@echo "AWS production — producer:"
-	@echo "  make aws-producer    Run Kinesis producer against real AWS Kinesis"
+	@echo "  make aws-producer      Run Kinesis producer against real AWS Kinesis"
 	@echo ""
 	@echo "AWS production — Glue Streaming (primary deployment):"
-	@echo "  make glue-start      Start the Glue streaming job (runs continuously)"
-	@echo "  make glue-status     Check latest Glue job run status"
+	@echo "  make glue-start        Start the Glue streaming job (runs continuously)"
+	@echo "  make glue-status       Check latest Glue job run status"
 	@echo ""
 	@echo "AWS production — EMR Serverless (future/alternative — see docs/AWS_PRODUCTION_DEPLOYMENT.md):"
-	@echo "  make emr-upload      Upload jars, script and reference data to S3"
-	@echo "  make emr-list-apps   List EMR Serverless applications"
-	@echo "  make emr-start       Submit a job run (requires EMR_APP_ID and EMR_EXECUTION_ROLE_ARN env vars)"
-	@echo "  make emr-status      Check latest job run status (requires EMR_APP_ID)"
+	@echo "  make emr-upload        Upload jars, script and reference data to S3"
+	@echo "  make emr-list-apps     List EMR Serverless applications"
+	@echo "  make emr-start         Submit a job run (requires EMR_APP_ID and EMR_EXECUTION_ROLE_ARN env vars)"
+	@echo "  make emr-status        Check latest job run status (requires EMR_APP_ID)"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test            Run unit tests"
-	@echo "  make clean           Remove containers, volumes, and cache"
+	@echo "  make test              Run unit tests"
+	@echo "  make clean             Remove containers, volumes, and cache"
 	@echo ""
 
 up:
@@ -55,12 +56,10 @@ aws-producer:
 	@echo "Stop with: pkill -f kinesis_stream_producer.py"
 
 consumer:
-	@echo "NOTE: The awslabs Kinesis connector is bundled only on the EMR 7.1.0+ runtime image."
-	@echo "      It is not published to Maven Central and cannot be downloaded for local Docker use."
-	@echo "      For local development, point the consumer at a LocalStack Kinesis endpoint and"
-	@echo "      ensure the connector jar is available inside the Spark container."
+	@echo "NOTE: Requires jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar"
+	@echo "      Build it with: make build-kinesis-jar"
 	docker exec -d etl-project-2-spark sh -c '/opt/spark/bin/spark-submit \
-		--jars /opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
+		--jars /opt/spark/jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar,/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
 		/opt/spark/scripts/spark_aggregator.py \
 		--kinesis-stream music-streams \
 		--songs-path /opt/spark/sample_data_initial_load/songs.csv \
@@ -71,6 +70,18 @@ consumer:
 		--watermark-minutes 1 \
 		--local > /tmp/consumer.log 2>&1'
 	@echo "Consumer started in background. Logs: docker exec etl-project-2-spark tail -f /tmp/consumer.log"
+
+build-kinesis-jar:
+	@echo "Building awslabs spark-sql-kinesis-connector v1.4.2 from source..."
+	@echo "This requires Docker and takes ~3 minutes on first run (Maven dependency download)."
+	docker run --rm \
+		-v $(PWD)/jars:/output \
+		maven:3.9-eclipse-temurin-17 \
+		sh -c "git clone --depth 1 --branch v1.4.2 https://github.com/awslabs/spark-sql-kinesis-connector.git /build && \
+		       cd /build && mvn package -DskipTests -q && \
+		       cp target/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar /output/"
+	@echo "JAR built: jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar"
+	@echo "The JAR is excluded from git (.gitignore) — re-run make build-kinesis-jar on a fresh clone."
 
 emr-upload:
 	@echo "Uploading jars to S3 (S3A support jars only — Kinesis connector is bundled in EMR 7.1.0+)..."
