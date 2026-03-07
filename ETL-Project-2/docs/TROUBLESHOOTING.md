@@ -45,27 +45,39 @@ builder.config("spark.executor.extraJavaOptions", jvm_creds)
 
 ### L2 — Connector can't derive region from LocalStack URL
 
-**Error**
+**Error (v1.4.2)**
 ```
-com.amazonaws.SdkClientException: Invalid region name:
-    http://etl-project-2-localstack:4566
+pyspark.errors.exceptions.captured.StreamingQueryException: [STREAM_FAILED]
+Query terminated with exception: Invalid endpoint url received.
+Cannot parse region: http://etl-project-2-localstack:4566
 ```
 
-**Cause** — When connecting to a LocalStack endpoint, the connector's AWS SDK layer cannot parse a region name from a bare hostname URL like `http://etl-project-2-localstack:4566`. It expects a standard AWS endpoint URL from which it could derive the region.
+**Cause** — The connector's `getRegionNameByEndpoint()` utility parses the region from the URL by
+splitting on dots and extracting the second segment (expecting `<service>.<region>.<tld>`). It is
+called in two places in `KinesisOptions.apply()`:
 
-**Fix** — Set `kinesis.region` explicitly in the connector options:
+1. As the fallback for `kinesis.region` — bypassed when you set `kinesis.region` explicitly.
+2. As the fallback for `kinesis.kinesisRegion` (added in v1.4.2) — **this is what crashes**,
+   because `kinesis.kinesisRegion` is a new separate field and was not set.
+
+The URL `http://etl-project-2-localstack:4566` has only one dot (between `localstack` and `4566`),
+so the second-dot lookup returns -1 and the function throws. This bug only appears with connector
+v1.4.2+ — earlier versions had no `kinesisRegion` field.
+
+**Fix** — Set both `kinesis.region` **and** `kinesis.kinesisRegion` explicitly in the LocalStack
+code path:
 ```python
-options = {
-    "kinesis.region": region,
-    "kinesis.endpointUrl": localstack_endpoint,
-    ...
-}
+if use_localstack:
+    options["kinesis.endpointUrl"]  = localstack_endpoint
+    options["kinesis.kinesisRegion"] = region  # bypass URL-parsing fallback in v1.4.2
 ```
 
-This applies to the awslabs connector (EMR 7.1.0+ bundled). For production (real AWS), `kinesis.region` is still required — the connector has no auto-detection fallback.
+`kinesis.region` and `kinesis.kinesisRegion` accept the same value (e.g. `"ap-south-1"`). Setting
+both means `KinesisOptions.apply()` never falls back to `getRegionNameByEndpoint()` for either field.
 
 **References**
 - [Kinesis connector config reference](https://github.com/awslabs/spark-sql-kinesis-connector#kinesis-source-configuration)
+- [`KinesisOptions.scala` — `kinesisRegion` field](https://github.com/awslabs/spark-sql-kinesis-connector/blob/main/src/main/scala/org/apache/spark/sql/connector/kinesis/KinesisOptions.scala)
 - [LocalStack Kinesis docs](https://docs.localstack.cloud/user-guide/aws/kinesis/)
 
 ---
@@ -138,8 +150,8 @@ KINESIS_ENDPOINT=http://localhost:4566
 | # | Error | Cause | Fix |
 |---|-------|-------|-----|
 | L1 | `UnrecognizedClientException` | JVM doesn't inherit container env var credentials | Inject as `-Daws.accessKeyId` JVM system properties |
-| L2 | `SdkClientException` — invalid region name | SDK can't parse region from a LocalStack hostname URL | Set `kinesis.region` explicitly in connector options |
-| L3 | `NoSuchBucket` (404) | MinIO doesn't auto-create; `make down` wipes the volume | Manually create `etl-data` and `aggregations` before each run |
+| L2 | `Invalid endpoint url received. Cannot parse region` | v1.4.2 `kinesisRegion` field also calls `getRegionNameByEndpoint()` as fallback | Set `kinesis.kinesisRegion` explicitly alongside `kinesis.region` in LocalStack path |
+| L3 | `NoSuchBucket` (404) | MinIO doesn't auto-create; `make down` wipes the volume | Manually create `etl-project-2-data` bucket before each run |
 | L4 | `Access Denied` (403) from MinIO | S3A virtual-hosted-style addressing; MinIO needs path-style | `spark.hadoop.fs.s3a.path.style.access = true` |
 | L5 | `EndpointConnectionError` to `localhost:4566` | `localhost` inside a container is the container itself | Container hostname in `docker-compose.yml`; `localhost` only in `.env` |
 
@@ -296,6 +308,7 @@ for the full root cause analysis and what to verify before re-enabling the sched
 
 - **JVM != Python process.** In Docker, credentials set as env vars are not visible to the Kinesis connector's JVM. Use `-D` JVM system properties via `spark.driver.extraJavaOptions`.
 - **`kinesis.region` is always required.** The connector has no automatic region detection — set it explicitly for both LocalStack and real AWS.
+- **`kinesis.kinesisRegion` must also be set for LocalStack (v1.4.2+).** v1.4.2 introduced a second region field. If not explicitly set, it falls back to `getRegionNameByEndpoint()` which crashes on bare LocalStack hostnames. Set both `kinesis.region` and `kinesis.kinesisRegion` to the same value in the LocalStack code path.
 - **MinIO requires path-style access.** `spark.hadoop.fs.s3a.path.style.access = true` is non-negotiable for S3A → MinIO.
 - **`localhost` means different things inside vs outside Docker.** Keep `.env` (host-side) and `docker-compose.yml` env values (container-side) separate.
 - **Use `parse_known_args()` on managed runtimes.** EMR/Glue may inject their own `sys.argv` entries; `parse_args()` will crash on them.
@@ -318,7 +331,11 @@ options = {
 }
 
 if use_localstack:
-    options["kinesis.endpointUrl"] = localstack_endpoint
+    options["kinesis.endpointUrl"]   = localstack_endpoint
+    # v1.4.2: kinesisRegion is a second region field that also calls
+    # getRegionNameByEndpoint() as its fallback — set it explicitly to
+    # prevent it from trying to parse the region from the LocalStack URL.
+    options["kinesis.kinesisRegion"] = region
 ```
 
 Deployment: **AWS Glue Streaming** with `--trigger-mode continuous` (default). The job runs

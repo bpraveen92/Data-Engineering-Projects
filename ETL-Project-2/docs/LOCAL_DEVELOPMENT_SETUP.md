@@ -123,6 +123,28 @@ For the full step-by-step run guide with expected output, see [`EXECUTION.md`](E
 
 ---
 
+## Connector JAR (one-time build)
+
+The Spark container requires the awslabs Kinesis connector JAR to read from LocalStack. The JAR is **not committed to git** (it's 81 MB — excluded via `jars/*.jar` in `.gitignore`). On a fresh clone, build it once:
+
+```bash
+make build-kinesis-jar
+```
+
+This pulls `maven:3.9-eclipse-temurin-17`, clones the connector source at tag `v1.4.2`, builds with Maven (skipping tests), and copies the resulting JAR into `jars/`. Takes ~5 minutes on first run (Maven downloads dependencies); subsequent builds are faster if the Maven cache layer is still warm.
+
+The JAR is baked into the Spark Docker image at build time via the `Dockerfile` `COPY jars/ ...` step. After building the JAR, rebuild the image:
+
+```bash
+docker compose build spark
+```
+
+Or just run `make up` — it builds the image automatically if no image exists yet.
+
+**Why not pre-built binaries?** The awslabs connector has no published Maven Central artifacts and no pre-built JARs on GitHub Releases — source build is the only option.
+
+---
+
 ## Environment Variables
 
 The `.env` file configures endpoints and credentials. Copy `.env.example` to `.env` to get started — no values need changing for local development.
@@ -163,7 +185,7 @@ KINESIS_ENDPOINT=http://localhost:4566
 
 ## Troubleshooting
 
-If you run into errors while setting up or running the local stack, see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). Part 1 of that document covers all the local Docker issues in detail — JVM credential visibility, MinIO path-style access, `NoSuchBucket` after `make down`, LocalStack hostname resolution inside containers, and region derivation failures from the Kinesis connector.
+If you run into errors while setting up or running the local stack, see [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). Part 1 of that document covers all the local Docker issues in detail — JVM credential visibility, MinIO path-style access, `NoSuchBucket` after `make down`, LocalStack hostname resolution inside containers, and the v1.4.2 connector `kinesis.kinesisRegion` region-derivation crash.
 
 ---
 

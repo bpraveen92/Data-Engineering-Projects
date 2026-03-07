@@ -60,17 +60,19 @@ The Spark container idles (running `tail -f /dev/null`) until you submit a job t
 
 ---
 
-## Step 2 — Set up MinIO buckets
+## Step 2 — Set up MinIO bucket
 
-MinIO doesn't auto-create buckets. After every `make up` you need to create them manually.
+MinIO doesn't auto-create buckets. After every `make up` you need to create one manually.
 
 1. Open **http://localhost:9001** — log in with `minioadmin / minioadmin`
-2. Create bucket **`etl-project-2-data`** with the following structure:
+2. Create bucket **`etl-project-2-data`**
    - Upload `sample_data_initial_load/songs.csv` → `etl-project-2-data/songs.csv`
    - Upload `sample_data_initial_load/users.csv` → `etl-project-2-data/users.csv`
    - Leave `aggregations/` and `checkpoints/` empty (Spark creates them on first write)
 
-> **Note:** `make down` runs `docker compose down -v` which wipes the `minio-storage` volume. The bucket and all uploaded files are lost — recreate them before each new run.
+> **Note:** `make down` runs `docker compose down -v` which wipes the `minio-storage` volume. The bucket and all uploaded files are lost — recreate before each new run.
+
+The Kinesis stream (`music-streams`) is **auto-created** by the producer on first run — no manual setup needed.
 
 ---
 
@@ -108,6 +110,12 @@ The Kinesis stream is auto-created on first run. Leave the producer running whil
 ---
 
 ## Step 4 — Run the Spark aggregator
+
+> **Prerequisite — connector JAR.** The `jars/` directory is gitignored. On a fresh clone you must build the Kinesis connector JAR once before running the consumer:
+> ```bash
+> make build-kinesis-jar
+> ```
+> This takes a few minutes (Maven builds from source). The resulting `jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar` is copied into the Docker image on the next `make up` / `docker compose build spark`.
 
 In a new terminal:
 
@@ -190,10 +198,16 @@ Stops all containers and wipes the `minio-storage` volume. The next `make up` st
 
 Minimum viable run — across two terminals:
 
+**One-time setup (fresh clone):**
+```bash
+make build-kinesis-jar      # build the connector JAR (~5 min, Maven)
+```
+
 **Terminal 1:**
 ```bash
 make up
-# wait for healthy, then set up MinIO buckets (Step 2)
+# wait for all 3 containers to show healthy
+# then create the etl-project-2-data bucket in http://localhost:9001 (Step 2)
 make producer
 ```
 
