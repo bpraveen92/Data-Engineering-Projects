@@ -43,7 +43,6 @@ producer:
 		--batch-size 20 \
 		--interval-seconds 5.0 \
 		--local > /tmp/producer.log 2>&1'
-	@echo "Producer started in background. Logs: docker exec etl-project-2-spark tail -f /tmp/producer.log"
 
 aws-producer:
 	python3 scripts/kinesis_stream_producer.py \
@@ -52,12 +51,9 @@ aws-producer:
 		--batch-size 20 \
 		--interval-seconds 5.0 \
 		> /tmp/aws-producer.log 2>&1 &
-	@echo "Producer running in background. Logs: tail -f /tmp/aws-producer.log"
-	@echo "Stop with: pkill -f kinesis_stream_producer.py"
 
 consumer:
-	@echo "NOTE: Requires jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar"
-	@echo "      Build it with: make build-kinesis-jar"
+	# Requires jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar — build with: make build-kinesis-jar
 	docker exec -d etl-project-2-spark sh -c '/opt/spark/bin/spark-submit \
 		--jars /opt/spark/jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar,/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
 		/opt/spark/scripts/spark_aggregator.py \
@@ -69,39 +65,29 @@ consumer:
 		--window-minutes 5 \
 		--watermark-minutes 1 \
 		--local > /tmp/consumer.log 2>&1'
-	@echo "Consumer started in background. Logs: docker exec etl-project-2-spark tail -f /tmp/consumer.log"
 
 build-kinesis-jar:
-	@echo "Building awslabs spark-sql-kinesis-connector v1.4.2 from source..."
-	@echo "This requires Docker and takes ~3 minutes on first run (Maven dependency download)."
 	docker run --rm \
 		-v $(PWD)/jars:/output \
 		maven:3.9-eclipse-temurin-17 \
 		sh -c "git clone --depth 1 --branch v1.4.2 https://github.com/awslabs/spark-sql-kinesis-connector.git /build && \
 		       cd /build && mvn package -DskipTests -q && \
 		       cp target/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar /output/"
-	@echo "JAR built: jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar"
-	@echo "The JAR is excluded from git (.gitignore) — re-run make build-kinesis-jar on a fresh clone."
 
 emr-upload:
 	# NOTE: The original S3 bucket (pravbala-de-etl-project-emr) has been deleted.
 	# Create a new bucket and update the S3 paths below before running this target.
 	# Also update .env S3_BUCKET and the emr-start target accordingly.
-	@echo "Uploading jars to S3 (S3A support jars only — Kinesis connector is bundled in EMR 7.1.0+)..."
 	aws s3 cp jars/hadoop-aws-3.3.4.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-2
 	aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-2
-	@echo "Uploading script to S3..."
 	aws s3 cp scripts/spark_aggregator.py s3://$${S3_BUCKET}/Project-2/scripts/ --region ap-south-2
-	@echo "Uploading reference data to S3..."
 	aws s3 cp sample_data_initial_load/songs.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-2
 	aws s3 cp sample_data_initial_load/users.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-2
-	@echo "Upload complete."
 
 emr-start:
 	# NOTE: EMR Serverless application has been deleted.
 	# Recreate it and update EMR_APP_ID in .env before running this target.
-	# available_now trigger is unsupported by the awslabs connector (Issue #79).
-	# See docs/AWS_PRODUCTION_DEPLOYMENT.md for full context.
+	# available_now trigger is unsupported by the awslabs connector (Issue #79) — see docs/TROUBLESHOOTING.md G5.
 	aws emr-serverless start-job-run \
 		--application-id $${EMR_APP_ID} \
 		--execution-role-arn $${EMR_EXECUTION_ROLE_ARN} \
@@ -128,7 +114,6 @@ glue-start:
 		--job-name etl-project-2-streaming \
 		--region ap-south-2 \
 		--no-cli-pager
-	@echo "Glue job started. Monitor: https://ap-south-2.console.aws.amazon.com/glue/home?region=ap-south-2#/monitoring"
 
 glue-status:
 	aws glue get-job-runs \
