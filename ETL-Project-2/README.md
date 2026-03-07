@@ -4,10 +4,12 @@ This is the streaming counterpart to ETL-Project-1. Where that project handled b
 
 **Stack**: PySpark 3.5 + AWS Kinesis + Parquet to S3  
 **Local Testing**: Docker — Spark, LocalStack (Kinesis), MinIO (S3)  
-**Production Target**: EMR / AWS Glue + Kinesis + S3  
+**Production Target**: EMR Serverless (primary) · AWS Glue Streaming (alternative)
 
 > For the full step-by-step run guide and troubleshooting, see [`docs/EXECUTION.md`](docs/EXECUTION.md).  
-> For environment variables and config reference, see [`docs/LOCAL_DEVELOPMENT_SETUP.md`](docs/LOCAL_DEVELOPMENT_SETUP.md).
+> For environment variables and config reference, see [`docs/LOCAL_DEVELOPMENT_SETUP.md`](docs/LOCAL_DEVELOPMENT_SETUP.md).  
+> For AWS production deployment (EMR Serverless), see [`docs/AWS_PRODUCTION_DEPLOYMENT.md`](docs/AWS_PRODUCTION_DEPLOYMENT.md).  
+> For the alternative Glue Streaming deployment, see [`docs/GLUE_DEPLOYMENT.md`](docs/GLUE_DEPLOYMENT.md).
 
 ---
 
@@ -31,7 +33,7 @@ Results land as partitioned Parquet in MinIO (locally) or S3 (production), query
 Kinesis Stream
     │  {user_id, track_id, timestamp, event_type}
     ▼
-PySpark Structured Streaming
+PySpark Structured Streaming  (spark_aggregator.py)
     ├── Broadcast join → songs.csv  (S3/MinIO)
     ├── Broadcast join → users.csv  (S3/MinIO)
     └── Windowed aggregations (5-min window, 1-min watermark)
@@ -42,6 +44,17 @@ PySpark Structured Streaming
               MinIO / S3 — Parquet, partitioned by window_start
                     │
               Glue Crawler → Athena
+
+Compute layer (one script, two deployment options):
+  ┌─────────────────────────────────────────────────────────┐
+  │  EMR Serverless  (primary — scheduled, cost-efficient)  │
+  │  EventBridge triggers every 30 min → job drains Kinesis │
+  │  backlog since last checkpoint → exits → scales to zero │
+  ├─────────────────────────────────────────────────────────┤
+  │  AWS Glue Streaming  (alternative — always-on)          │
+  │  Long-running streaming job, sub-minute latency,        │
+  │  higher cost — justified when latency SLA < 5 min       │
+  └─────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -197,13 +210,10 @@ Each partition contains a single compacted Parquet file — the `foreachBatch` +
 ### Step 6: Tear down
 
 ```bash
-# Kill the running pipeline processes inside the container
-docker exec etl-project-2-spark sh -c \
-  'kill $(pgrep -f spark-submit) $(pgrep -f kinesis_stream_producer) 2>/dev/null; echo done'
-
-# Stop the containers and wipe volumes
 make down
 ```
+
+This stops all containers and wipes the `minio-storage` volume. Any running processes inside the containers (producer, aggregator) are killed as part of the container shutdown.
 
 ---
 
@@ -222,15 +232,29 @@ make down
 ## Makefile Reference
 
 ```bash
-make up        # Start all 3 containers
-make down      # Stop containers and remove volumes
-make logs      # Tail docker-compose logs
-make test      # Run unit tests
-make producer  # Run the Kinesis producer inside the Spark container
-make consumer  # Run the Spark aggregator inside the Spark container (writes to s3a://aggregations/)
+# Local development
+make up              # Start all 3 Docker containers (Spark, LocalStack, MinIO)
+make down            # Stop containers and remove volumes
+make logs            # Tail docker-compose logs
+make producer        # Run Kinesis producer inside the Spark container (LocalStack)
+make consumer        # Run Spark aggregator inside the Spark container (MinIO output)
+make test            # Run unit tests
+make clean           # Remove containers, volumes, and Python cache
+
+# AWS production — Kinesis producer
+make aws-producer    # Run producer against real AWS Kinesis
+
+# AWS production — EMR Serverless (primary)
+make emr-list-apps   # List EMR Serverless applications and their IDs
+make emr-start       # Submit a job run  (set EMR_APP_ID and EMR_EXECUTION_ROLE_ARN first)
+make emr-status      # Check latest job run status  (set EMR_APP_ID)
+
+# AWS production — Glue Streaming (alternative)
+make glue-start      # Start the Glue streaming job
+make glue-status     # Check latest Glue job run status
 ```
 
-Both `make producer` and `make consumer` run inside `etl-project-2-spark` via `docker exec` — the whole pipeline is self-contained within Docker.
+Both `make producer` and `make consumer` run inside `etl-project-2-spark` via `docker exec` — the whole local pipeline is self-contained within Docker.
 
 ---
 
@@ -239,13 +263,14 @@ Both `make producer` and `make consumer` run inside `etl-project-2-spark` via `d
 | | Project-1 | Project-2 |
 |---|---|---|
 | **Source** | CSV files in S3 | Streaming events via Kinesis |
-| **Trigger** | Scheduled Airflow DAG | Continuous micro-batches |
+| **Trigger** | Scheduled Airflow DAG | Micro-batches (continuous or scheduled) |
 | **Framework** | Airflow + PySpark | PySpark Structured Streaming |
 | **Output** | Redshift | S3 + Athena |
 | **Local stack** | Airflow in Docker | Spark + LocalStack + MinIO |
+| **Production** | AWS MWAA | EMR Serverless (or Glue Streaming) |
 
 ---
 
 **Built with**: PySpark 3.5 · LocalStack · MinIO · Docker  
 **Region**: `ap-south-2`  
-**Status**: Fully tested locally, ready for AWS deployment
+**Status**: Fully tested locally · EMR Serverless and Glue deployment documented
