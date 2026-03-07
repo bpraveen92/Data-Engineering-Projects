@@ -4,12 +4,12 @@ This is the streaming counterpart to ETL-Project-1. Where that project handled b
 
 **Stack**: PySpark 3.5 + AWS Kinesis + Parquet to S3  
 **Local Testing**: Docker — Spark, LocalStack (Kinesis), MinIO (S3)  
-**Production Target**: EMR Serverless (primary) · AWS Glue Streaming (alternative)
+**Production Target**: AWS Glue Streaming (primary) · EMR Serverless (alternative)
 
 > For the full step-by-step run guide and troubleshooting, see [`docs/EXECUTION.md`](docs/EXECUTION.md).  
 > For environment variables and config reference, see [`docs/LOCAL_DEVELOPMENT_SETUP.md`](docs/LOCAL_DEVELOPMENT_SETUP.md).  
-> For AWS production deployment (EMR Serverless), see [`docs/AWS_PRODUCTION_DEPLOYMENT.md`](docs/AWS_PRODUCTION_DEPLOYMENT.md).  
-> For the alternative Glue Streaming deployment, see [`docs/GLUE_DEPLOYMENT.md`](docs/GLUE_DEPLOYMENT.md).
+> For deploying to AWS Glue Streaming (primary), see [`docs/GLUE_DEPLOYMENT.md`](docs/GLUE_DEPLOYMENT.md).  
+> For the EMR Serverless alternative deployment, see [`docs/AWS_PRODUCTION_DEPLOYMENT.md`](docs/AWS_PRODUCTION_DEPLOYMENT.md).
 
 ---
 
@@ -47,13 +47,13 @@ PySpark Structured Streaming  (spark_aggregator.py)
 
 Compute layer (one script, two deployment options):
   ┌─────────────────────────────────────────────────────────┐
-  │  EMR Serverless  (primary — scheduled, cost-efficient)  │
+  │  AWS Glue Streaming  (primary — always-on, sub-minute)  │
+  │  Long-running streaming job, continuous micro-batches,  │
+  │  scales workers automatically, no cold start latency    │
+  ├─────────────────────────────────────────────────────────┤
+  │  EMR Serverless  (alternative — scheduled, low cost)    │
   │  EventBridge triggers every 30 min → job drains Kinesis │
   │  backlog since last checkpoint → exits → scales to zero │
-  ├─────────────────────────────────────────────────────────┤
-  │  AWS Glue Streaming  (alternative — always-on)          │
-  │  Long-running streaming job, sub-minute latency,        │
-  │  higher cost — justified when latency SLA < 5 min       │
   └─────────────────────────────────────────────────────────┘
 ```
 
@@ -69,7 +69,7 @@ ETL-Project-2/
 ├── .env.example                     # Config template — copy to .env
 │
 ├── jars/                            # Spark JARs — not committed (see Prerequisites below)
-│   ├── spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar
+│   ├── spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar  # built from source via make build-kinesis-jar
 │   ├── hadoop-aws-3.3.4.jar
 │   └── aws-java-sdk-bundle-1.12.565.jar
 │
@@ -95,35 +95,39 @@ ETL-Project-2/
 
 ## Running on Docker
 
-### Prerequisites — Download JARs
+### Prerequisites — Build the Kinesis Connector JAR
 
-The Spark JARs are **not committed to this repo** (too large for GitHub). Download them once and place them in the `jars/` folder before running anything:
+The Kinesis connector JAR is **not committed to this repo**. Build it once from source using Docker (requires no local Maven or JDK install):
+
+```bash
+make build-kinesis-jar
+```
+
+This clones the awslabs connector at tag `v1.4.2`, builds it with Maven inside a Docker container, and places the JAR at `jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar`. Takes ~3 minutes on first run (Maven dependency download). Re-run on a fresh clone.
+
+Also download the Hadoop and AWS SDK JARs:
 
 ```bash
 mkdir -p jars
 
-# 1. Kinesis connector for Spark Structured Streaming
-curl -L -o jars/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar \
-  https://github.com/awslabs/spark-sql-kinesis-connector/releases/download/v1.0.0/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar
-
-# 2. Hadoop AWS S3A filesystem implementation
+# Hadoop AWS S3A filesystem implementation
 curl -L -o jars/hadoop-aws-3.3.4.jar \
   https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar
 
-# 3. AWS Java SDK bundle (required by both connectors above)
+# AWS Java SDK bundle (required by both connectors above)
 curl -L -o jars/aws-java-sdk-bundle-1.12.565.jar \
   https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.565/aws-java-sdk-bundle-1.12.565.jar
 ```
 
-After downloading, verify:
+After building, verify:
 ```bash
 ls -lh jars/
-# spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar  ~73 MB
+# spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar  ~74 MB
 # hadoop-aws-3.3.4.jar                                   ~8 MB
 # aws-java-sdk-bundle-1.12.565.jar                       ~331 MB
 ```
 
-> These JARs are listed in `.gitignore` and must be present **before** running `make up` — the Docker build copies them into the image at `COPY jars/ /opt/spark/jars/`.
+> All three JARs are listed in `.gitignore` and must be present **before** running `make up` — the Docker build copies them into the image at `COPY jars/ /opt/spark/jars/`.
 
 ---
 
@@ -141,16 +145,17 @@ This brings up:
 - **`etl-project-2-localstack`** — simulates AWS Kinesis on port 4566
 - **`etl-project-2-minio`** — S3-compatible storage (console at http://localhost:9001)
 
-### Step 2: Set up MinIO buckets and upload dimension data
+### Step 2: Set up MinIO bucket
 
 Open the MinIO console at **http://localhost:9001** and log in with `minioadmin` / `minioadmin`. Then:
 
-1. Create two buckets: **`etl-data`** and **`aggregations`**
-2. Inside `etl-data`, upload `sample_data_initial_load/songs.csv` and `sample_data_initial_load/users.csv`
+1. Create bucket **`etl-project-2-data`**
+2. Upload `sample_data_initial_load/songs.csv` and `sample_data_initial_load/users.csv` into the bucket root
+3. Leave `aggregations/` and `checkpoints/` empty — Spark creates these on first write
 
-The aggregator reads dimension tables directly from `s3a://etl-data/songs.csv` and `s3a://etl-data/users.csv` — the same `s3a://` path pattern it will use against real S3 in production. Locally, the S3A connector is pointed at MinIO; in production it hits AWS S3. No code changes needed between environments, only the endpoint configuration changes via the `--local` flag.
+The aggregator reads dimension tables from `s3a://etl-project-2-data/songs.csv` and writes aggregations to `s3a://etl-project-2-data/aggregations/` — the same bucket, different prefixes. Locally the S3A connector points at MinIO; in production it hits AWS S3. No code changes between environments, only the endpoint config changes via `--local`.
 
-> ⚠️ **Both buckets must be created manually before starting the consumer.** The pipeline does **not** auto-create them. If `aggregations` is missing when the consumer starts, Spark will crash with a `NoSuchBucket` error on the first write attempt. If `make down` is run, the `minio-storage` named volume is wiped and both buckets are lost — they must be recreated before the next run.
+> ⚠️ **The bucket must be created before starting the consumer.** The pipeline does **not** auto-create it. `make down` runs `docker compose down -v` which wipes the `minio-storage` named volume — recreate the bucket before each new run.
 
 ### Step 3: Start the producer
 
@@ -178,12 +183,13 @@ The aggregator also runs inside the Spark container. Use `make consumer` for the
 
 ```bash
 docker exec -d etl-project-2-spark spark-submit \
-  --jars /opt/spark/jars/spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar,/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
+  --jars /opt/spark/jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar,/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
   /opt/spark/scripts/spark_aggregator.py \
     --kinesis-stream music-streams \
-    --songs-path s3a://etl-data/songs.csv \
-    --users-path s3a://etl-data/users.csv \
-    --output-path s3a://aggregations/ \
+    --songs-path /opt/spark/sample_data_initial_load/songs.csv \
+    --users-path /opt/spark/sample_data_initial_load/users.csv \
+    --output-path s3a://etl-project-2-data/aggregations \
+    --checkpoint-path s3a://etl-project-2-data/checkpoints \
     --window-minutes 5 \
     --watermark-minutes 1 \
     --local
@@ -196,13 +202,14 @@ docker exec etl-project-2-spark tail -f /tmp/consumer.log
 
 ### Step 5: Verify output
 
-After about 5 minutes (one window closes), open **http://localhost:9001** → `aggregations` bucket. Three partition folders should appear:
+After about 5 minutes (one window closes), open **http://localhost:9001** → `etl-project-2-data` bucket → `aggregations/`. Three partition folders should appear:
 
 ```
-aggregations/
-├── hourly_streams/window_start=.../
-├── top_tracks_hourly/window_start=.../
-└── country_metrics_hourly/window_start=.../
+etl-project-2-data/
+  aggregations/
+    hourly_streams/window_start=.../
+    top_tracks_hourly/window_start=.../
+    country_metrics_hourly/window_start=.../
 ```
 
 Each partition contains a single compacted Parquet file — the `foreachBatch` + `coalesce` handler takes care of that so I don't end up with hundreds of 2KB fragments.
@@ -238,20 +245,21 @@ make down            # Stop containers and remove volumes
 make logs            # Tail docker-compose logs
 make producer        # Run Kinesis producer inside the Spark container (LocalStack)
 make consumer        # Run Spark aggregator inside the Spark container (MinIO output)
+make build-kinesis-jar  # Build the v1.4.2 connector JAR from source (required once before make consumer)
 make test            # Run unit tests
 make clean           # Remove containers, volumes, and Python cache
 
 # AWS production — Kinesis producer
 make aws-producer    # Run producer against real AWS Kinesis
 
-# AWS production — EMR Serverless (primary)
+# AWS production — Glue Streaming (primary)
+make glue-start      # Start the Glue streaming job
+make glue-status     # Check latest Glue job run status
+
+# AWS production — EMR Serverless (alternative)
 make emr-list-apps   # List EMR Serverless applications and their IDs
 make emr-start       # Submit a job run  (set EMR_APP_ID and EMR_EXECUTION_ROLE_ARN first)
 make emr-status      # Check latest job run status  (set EMR_APP_ID)
-
-# AWS production — Glue Streaming (alternative)
-make glue-start      # Start the Glue streaming job
-make glue-status     # Check latest Glue job run status
 ```
 
 Both `make producer` and `make consumer` run inside `etl-project-2-spark` via `docker exec` — the whole local pipeline is self-contained within Docker.
@@ -267,10 +275,10 @@ Both `make producer` and `make consumer` run inside `etl-project-2-spark` via `d
 | **Framework** | Airflow + PySpark | PySpark Structured Streaming |
 | **Output** | Redshift | S3 + Athena |
 | **Local stack** | Airflow in Docker | Spark + LocalStack + MinIO |
-| **Production** | AWS MWAA | EMR Serverless (or Glue Streaming) |
+| **Production** | AWS MWAA | AWS Glue Streaming (or EMR Serverless) |
 
 ---
 
 **Built with**: PySpark 3.5 · LocalStack · MinIO · Docker  
 **Region**: `ap-south-2`  
-**Status**: Fully tested locally · EMR Serverless and Glue deployment documented
+**Status**: Fully tested locally · Glue Streaming deployed · EMR Serverless documented as future alternative

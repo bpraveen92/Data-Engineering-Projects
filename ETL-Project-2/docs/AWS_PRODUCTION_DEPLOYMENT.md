@@ -6,7 +6,7 @@
 >
 > **When this becomes viable:** If Issue #79 is resolved upstream, EMR Serverless becomes significantly more attractive — ~$0.50–1/day vs Glue's ~$21/day at this project's scale. The script already supports `--trigger-mode available_now` and the `make emr-start` target is preserved. Switching back would require no code changes, just confirming the connector fix and deleting the stale S3 checkpoint before the first run.
 >
-> The full investigation and root cause are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) (sections G5 and G6).
+> The full investigation and root cause are documented in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) (section G5).
 
 ---
 
@@ -43,7 +43,7 @@ Since no partition readers run → `shard-source/` is never written → on the n
 
 ### Confirmed evidence (job run `00g3v9llj3al201v`, 7 March 2026)
 
-Offset file at `s3://pravbala-de-etl-project-emr/Project-2/checkpoints/hourly_streams/offsets/1`:
+Offset file at `s3://pravbala-data-engineering-projects/Project-2/checkpoints/hourly_streams/offsets/1`:
 ```json
 {"metadata":{"streamName":"music-streams","batchId":"0"},
  "shardId-000000000000":{
@@ -100,12 +100,12 @@ I set up all the AWS infrastructure manually through the console for this projec
 
 ## Step 1: Create the S3 bucket and upload everything
 
-The bucket name I'm using is `pravbala-de-etl-project-emr` in `ap-south-2`. You'll need to create that first through the AWS Console if it doesn't already exist.
+The bucket name I'm using is `pravbala-data-engineering-projects` in `ap-south-2`. You'll need to create that first through the AWS Console if it doesn't already exist.
 
 The folder layout inside the bucket for this project:
 
 ```
-s3://pravbala-de-etl-project-emr/
+s3://pravbala-data-engineering-projects/
 └── Project-2/
     ├── scripts/
     │   └── spark_aggregator.py           ← the main PySpark job
@@ -125,23 +125,23 @@ Upload with:
 
 ```bash
 aws s3 cp scripts/spark_aggregator.py \
-  s3://pravbala-de-etl-project-emr/Project-2/scripts/spark_aggregator.py \
+  s3://pravbala-data-engineering-projects/Project-2/scripts/spark_aggregator.py \
   --region ap-south-2
 
 aws s3 cp sample_data_initial_load/songs.csv \
-  s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/songs.csv \
+  s3://pravbala-data-engineering-projects/Project-2/sample_data_initial_load/songs.csv \
   --region ap-south-2
 
 aws s3 cp sample_data_initial_load/users.csv \
-  s3://pravbala-de-etl-project-emr/Project-2/sample_data_initial_load/users.csv \
+  s3://pravbala-data-engineering-projects/Project-2/sample_data_initial_load/users.csv \
   --region ap-south-2
 
 # S3A support JARs (not in the repo — download from Maven Central or Apache)
 aws s3 cp jars/hadoop-aws-3.3.4.jar \
-  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-2
+  s3://pravbala-data-engineering-projects/Project-2/jars/ --region ap-south-2
 
 aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar \
-  s3://pravbala-de-etl-project-emr/Project-2/jars/ --region ap-south-2
+  s3://pravbala-data-engineering-projects/Project-2/jars/ --region ap-south-2
 ```
 
 The `aggregations/` and `checkpoints/` prefixes don't need to be created manually — Spark creates them on the first write.
@@ -302,7 +302,7 @@ EventBridge doesn't wait for the job to finish before scheduling the next one �
 After the first job run completes, check S3:
 
 ```bash
-aws s3 ls s3://pravbala-de-etl-project-emr/Project-2/aggregations/ \
+aws s3 ls s3://pravbala-data-engineering-projects/Project-2/aggregations/ \
   --recursive --region ap-south-2
 ```
 
