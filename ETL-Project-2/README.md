@@ -4,7 +4,7 @@ A PySpark Structured Streaming pipeline that reads live music events from Kinesi
 
 **Stack**: PySpark 3.5 · Kinesis · Parquet on S3  
 **Local testing**: Docker (Spark + LocalStack + MinIO)  
-**Production**: AWS Glue Streaming (primary) · EMR Serverless (alternative, pending upstream fix)
+**Production**: AWS Glue Streaming (primary) · EMR Serverless (alternative, pending [Issue #79](https://github.com/awslabs/spark-sql-kinesis-connector/issues/79))
 
 ---
 
@@ -44,7 +44,7 @@ One script, two deployment modes — only `--trigger-mode` changes:
 | Deployment | Mode | Cost |
 |---|---|---|
 | AWS Glue Streaming | `continuous` — always-on, sub-minute latency | ~$21/day |
-| EMR Serverless | `available_now` — drain & exit every 30 min | ~$0.50–1/day (blocked by Issue #79) |
+| EMR Serverless | `available_now` — drain & exit every 30 min | ~$0.50–1/day (blocked — see [TROUBLESHOOTING.md G5](docs/TROUBLESHOOTING.md)) |
 
 ---
 
@@ -192,8 +192,7 @@ make emr-status          # check EMR job status
 |---|---|
 | [`EXECUTION.md`](docs/EXECUTION.md) | Full local run guide with expected output |
 | [`LOCAL_DEVELOPMENT_SETUP.md`](docs/LOCAL_DEVELOPMENT_SETUP.md) | Container networking, env vars, config reference |
-| [`GLUE_DEPLOYMENT.md`](docs/GLUE_DEPLOYMENT.md) | AWS Glue Streaming setup (primary) |
-| [`AWS_PRODUCTION_DEPLOYMENT.md`](docs/AWS_PRODUCTION_DEPLOYMENT.md) | EMR Serverless setup + `availableNow` bug root cause |
+| [`GLUE_DEPLOYMENT.md`](docs/GLUE_DEPLOYMENT.md) | AWS deployment — Glue Streaming (primary) + EMR Serverless (alternative) |
 | [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Every error encountered, cause and fix |
 
 ---

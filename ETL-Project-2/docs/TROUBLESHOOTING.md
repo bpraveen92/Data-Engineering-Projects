@@ -118,7 +118,7 @@ KINESIS_ENDPOINT=http://localhost:4566
 
 ---
 
-## Part 2 — AWS (EMR Serverless / Glue)
+## Part 2 — AWS (Glue / EMR Serverless)
 
 ---
 
