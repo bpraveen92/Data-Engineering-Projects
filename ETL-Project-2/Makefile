@@ -1,0 +1,103 @@
+.PHONY: help up down logs producer consumer build-kinesis-jar aws-producer emr-upload emr-start emr-status emr-list-apps glue-start glue-status test clean
+
+up:
+	docker compose up -d
+
+down:
+	docker compose down -v
+
+logs:
+	docker compose logs -f
+
+producer:
+	docker exec -d etl-project-2-spark sh -c 'python3 /opt/spark/scripts/kinesis_stream_producer.py \
+		--stream-name music-streams \
+		--batch-size 20 \
+		--interval-seconds 5.0 \
+		--local > /tmp/producer.log 2>&1'
+
+aws-producer:
+	python3 scripts/kinesis_stream_producer.py \
+		--stream-name music-streams \
+		--region ap-south-2 \
+		--batch-size 20 \
+		--interval-seconds 5.0 \
+		> /tmp/aws-producer.log 2>&1 &
+
+consumer:
+	# Requires jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar — build with: make build-kinesis-jar
+	docker exec -d etl-project-2-spark sh -c '/opt/spark/bin/spark-submit \
+		--jars /opt/spark/jars/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar,/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.565.jar \
+		/opt/spark/scripts/spark_aggregator.py \
+		--kinesis-stream music-streams \
+		--songs-path /opt/spark/sample_data_initial_load/songs.csv \
+		--users-path /opt/spark/sample_data_initial_load/users.csv \
+		--output-path s3a://etl-project-2-data/aggregations \
+		--checkpoint-path s3a://etl-project-2-data/checkpoints \
+		--window-minutes 5 \
+		--watermark-minutes 1 \
+		--local > /tmp/consumer.log 2>&1'
+
+build-kinesis-jar:
+	docker run --rm \
+		-v $(PWD)/jars:/output \
+		maven:3.9-eclipse-temurin-17 \
+		sh -c "git clone --depth 1 --branch v1.4.2 https://github.com/awslabs/spark-sql-kinesis-connector.git /build && \
+		       cd /build && mvn package -DskipTests -q && \
+		       cp target/spark-streaming-sql-kinesis-connector_2.12-1.4.2.jar /output/"
+
+emr-upload:
+	# NOTE: The original S3 bucket (pravbala-de-etl-project-emr) has been deleted.
+	# Create a new bucket and update the S3 paths below before running this target.
+	# Also update .env S3_BUCKET and the emr-start target accordingly.
+	aws s3 cp jars/hadoop-aws-3.3.4.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-2
+	aws s3 cp jars/aws-java-sdk-bundle-1.12.565.jar s3://$${S3_BUCKET}/Project-2/jars/ --region ap-south-2
+	aws s3 cp scripts/spark_aggregator.py s3://$${S3_BUCKET}/Project-2/scripts/ --region ap-south-2
+	aws s3 cp sample_data_initial_load/songs.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-2
+	aws s3 cp sample_data_initial_load/users.csv s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/ --region ap-south-2
+
+emr-start:
+	# NOTE: EMR Serverless application has been deleted.
+	# Recreate it and update EMR_APP_ID in .env before running this target.
+	# available_now trigger is unsupported by the awslabs connector (Issue #79) — see docs/TROUBLESHOOTING.md G5.
+	aws emr-serverless start-job-run \
+		--application-id $${EMR_APP_ID} \
+		--execution-role-arn $${EMR_EXECUTION_ROLE_ARN} \
+		--region ap-south-2 \
+		--no-cli-pager \
+		--job-driver '{"sparkSubmit":{"entryPoint":"s3://$${S3_BUCKET}/Project-2/scripts/spark_aggregator.py","entryPointArguments":["--kinesis-stream","music-streams","--songs-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/songs.csv","--users-path","s3://$${S3_BUCKET}/Project-2/sample_data_initial_load/users.csv","--output-path","s3://$${S3_BUCKET}/Project-2/aggregations","--checkpoint-path","s3://$${S3_BUCKET}/Project-2/checkpoints","--region","ap-south-2","--window-minutes","5","--watermark-minutes","1","--trigger-mode","available_now"],"sparkSubmitParameters":"--jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar,s3://$${S3_BUCKET}/Project-2/jars/hadoop-aws-3.3.4.jar,s3://$${S3_BUCKET}/Project-2/jars/aws-java-sdk-bundle-1.12.565.jar --conf spark.sql.shuffle.partitions=4"}}'
+	@echo "EMR Serverless job submitted. Check status: make emr-status"
+
+emr-status:
+	aws emr-serverless list-job-runs \
+		--application-id $${EMR_APP_ID} \
+		--region ap-south-2 \
+		--no-cli-pager \
+		--query 'jobRuns[0].{State:state,Created:createdAt,Updated:updatedAt,Id:jobRunId}'
+
+emr-list-apps:
+	aws emr-serverless list-applications \
+		--region ap-south-2 \
+		--no-cli-pager \
+		--query 'applications[*].{Id:id,Name:name,State:state,Type:type}'
+
+glue-start:
+	aws glue start-job-run \
+		--job-name etl-project-2-streaming \
+		--region ap-south-2 \
+		--no-cli-pager
+
+glue-status:
+	aws glue get-job-runs \
+		--job-name etl-project-2-streaming \
+		--region ap-south-2 \
+		--no-cli-pager \
+		--query 'JobRuns[0].{State:JobRunState,Started:StartedOn,Duration:ExecutionTime,Error:ErrorMessage}'
+
+test:
+	pytest tests/ -v
+
+clean:
+	docker compose down -v --rmi local
+	find . -type d -name __pycache__ -exec rm -rf {} +
+	find . -type d -name .pytest_cache -exec rm -rf {} +
