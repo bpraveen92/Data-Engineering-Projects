@@ -155,7 +155,7 @@ See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) for full details. Most likely iss
 
 - **G1** — `SystemExit: 2`: `parse_args()` crashes on Glue-injected args — already fixed with `parse_known_args()`.
 - **G2** — `kinesis.endpointUrl not specified`: connector has no default endpoint — already set explicitly in script.
-- **G4** — `dotenv` import crash: `python-dotenv` absent from Glue runtime — already wrapped in `try/except`.
+- **G3** — `dotenv` import crash: `python-dotenv` absent from Glue runtime — already wrapped in `try/except`.
 
 ---
 
@@ -165,5 +165,5 @@ The same script runs on EMR Serverless with one change — swap `--trigger-mode 
 
 On EMR, the `aws-kinesis` connector is bundled in the runtime image at `/usr/share/aws/kinesis/spark-sql-kinesis/lib/` — pass it via `--jars` with that local path when submitting (already set in `make emr-start`).
 
-**Why it's not the primary deployment:** The awslabs connector does not implement `reportLatestOffset()`, which `Trigger.AvailableNow` requires to establish a read fence. Without it, Spark exits immediately without reading any records — the job succeeds but writes zero output. See **G5** in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) for the full root cause. If [Issue #79](https://github.com/awslabs/spark-sql-kinesis-connector/issues/79) is resolved upstream, EMR Serverless becomes significantly more attractive (~$0.50–1/day vs Glue's ~$21/day).
+**Why it's not the primary deployment:** The awslabs connector does not implement `reportLatestOffset()`, which `Trigger.AvailableNow` requires to establish a read fence. Without it, Spark exits immediately without reading any records — the job succeeds but writes zero output. See **E2** in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) for the full root cause. If [Issue #79](https://github.com/awslabs/spark-sql-kinesis-connector/issues/79) is resolved upstream, EMR Serverless becomes significantly more attractive (~$0.50–1/day vs Glue's ~$21/day).
 

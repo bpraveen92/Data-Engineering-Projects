@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Issues encountered deploying this pipeline — first in Docker (LocalStack + MinIO), then on AWS EMR Serverless / Glue.
+Issues encountered deploying this pipeline — first in Docker (LocalStack + MinIO), then on AWS Glue and EMR Serverless.
 
 | | Local Docker | AWS |
 |---|---|---|
@@ -118,7 +118,7 @@ KINESIS_ENDPOINT=http://localhost:4566
 
 ---
 
-## Part 2 — AWS (Glue / EMR Serverless)
+## Part 2 — AWS Glue
 
 ---
 
@@ -129,7 +129,7 @@ KINESIS_ENDPOINT=http://localhost:4566
 Error from Python: SystemExit: 2
 ```
 
-**Cause** — Managed runtimes (Glue, EMR) inject their own args into `sys.argv`. `parse_args()` raises on unrecognised args.
+**Cause** — Glue injects its own args (`--JOB_NAME`, `--JOB_RUN_ID`, `--TempDir`, etc.) into `sys.argv`. `parse_args()` raises on any unrecognised argument.
 
 **Fix**
 ```python
@@ -157,26 +157,9 @@ if use_localstack:
 
 ---
 
-### G3 — `ClassNotFoundException: aws-kinesis.DefaultSource`
+### G3 — `ModuleNotFoundError: dotenv`
 
-**Error**
-```
-java.lang.ClassNotFoundException: Failed to find data source: aws-kinesis
-```
-
-**Cause** — On EMR, the connector JAR is on the runtime image but the `"aws-kinesis"` ServiceLoader entry is only registered when the JAR is on the Spark classpath via `--jars`.
-
-**Fix** — Pass the local image path:
-```
---jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
-```
-Already set in `make emr-start`. Not needed on Glue 4.0 — connector is built in.
-
----
-
-### G4 — `ModuleNotFoundError: dotenv`
-
-**Cause** — `python-dotenv` is in `requirements-dev.txt` for local use but is not in EMR/Glue runtimes.
+**Cause** — `python-dotenv` is in `requirements-dev.txt` for local use but is not in the Glue runtime.
 
 **Fix**
 ```python
@@ -189,27 +172,55 @@ except ImportError:
 
 ---
 
-### G5 — Job SUCCESS but zero output (`Trigger.AvailableNow` unsupported)
+### Part 2 Summary
+
+| # | Error | Cause | Fix |
+|---|-------|-------|-----|
+| G1 | `SystemExit: 2` | Glue-injected args crash `parse_args()` | `parse_known_args()` |
+| G2 | `kinesis.endpointUrl not specified` | No default endpoint fallback | Set explicitly |
+| G3 | `ModuleNotFoundError: dotenv` | `python-dotenv` absent from Glue runtime | `try/except ImportError` |
+
+---
+
+## Part 3 — EMR Serverless
+
+---
+
+### E1 — `ClassNotFoundException: aws-kinesis.DefaultSource`
+
+**Error**
+```
+java.lang.ClassNotFoundException: Failed to find data source: aws-kinesis
+```
+
+**Cause** — The connector JAR is bundled in the EMR 7.1.0+ runtime image but the `"aws-kinesis"` ServiceLoader entry is only registered when the JAR is explicitly on the Spark classpath via `--jars`.
+
+**Fix** — Pass the local image path:
+```
+--jars /usr/share/aws/kinesis/spark-sql-kinesis/lib/spark-streaming-sql-kinesis-connector.jar
+```
+Already set in `make emr-start`. Not needed on Glue 4.0 — connector is built in.
+
+---
+
+### E2 — Job SUCCESS but zero output (`Trigger.AvailableNow` unsupported)
 
 **Symptom** — EMR job exits `SUCCESS` but `aggregations/` in S3 is empty.
 
-**Cause** — `Trigger.AvailableNow` requires `reportLatestOffset()`. The connector implements `latestOffset()` but not `reportLatestOffset()`. Without the fence, Spark exits immediately — no partition readers run. The `shard-source/` checkpoint layer is never written, so the next run falls back to `TRIM_HORIZON`, replays everything, and the watermark drops all records as late.
+**Cause** — `Trigger.AvailableNow` requires `reportLatestOffset()` to give Spark a read fence. The connector implements `latestOffset()` but not `reportLatestOffset()`. Without the fence, Spark exits immediately — no partition readers run. The `shard-source/` checkpoint layer is never written, so the next job falls back to `TRIM_HORIZON`, replays everything from the start of the shard, and the watermark drops all records as late.
 
 **Confirmed (job `00g3v9llj3al201v`, 7 March 2026):**
 ```json
 {"shardId-000000000000": {"iteratorType": "TRIM_HORIZON", "iteratorPosition": ""}}
 ```
 
-**Fix** — Use AWS Glue Streaming (`--trigger-mode continuous`) as the primary deployment. Issue #79 tracks the upstream fix.
+**Fix** — Use AWS Glue Streaming (`--trigger-mode continuous`) as the primary deployment. [Issue #79](https://github.com/awslabs/spark-sql-kinesis-connector/issues/79) tracks the upstream fix.
 
 ---
 
-### Part 2 Summary
+### Part 3 Summary
 
 | # | Error | Cause | Fix |
 |---|-------|-------|-----|
-| G1 | `SystemExit: 2` | `parse_args()` rejects runtime-injected flags | `parse_known_args()` |
-| G2 | `kinesis.endpointUrl not specified` | No default endpoint fallback | Set explicitly, even for real AWS |
-| G3 | `ClassNotFoundException: aws-kinesis` | ServiceLoader not triggered without `--jars` local path | `--jars /usr/share/aws/kinesis/...` (EMR only) |
-| G4 | `ModuleNotFoundError: dotenv` | Not in EMR/Glue runtime | `try/except ImportError` |
-| G5 | Job SUCCESS, zero output | `availableNow` unsupported (Issue #79) | Use Glue Streaming `continuous` trigger |
+| E1 | `ClassNotFoundException: aws-kinesis` | ServiceLoader not triggered without `--jars` local path | `--jars /usr/share/aws/kinesis/...` |
+| E2 | Job SUCCESS, zero output | `availableNow` unsupported (Issue #79) | Use Glue Streaming `continuous` trigger |
