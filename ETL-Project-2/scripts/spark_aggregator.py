@@ -10,9 +10,14 @@ Primary deployment target: AWS Glue Streaming (--trigger-mode continuous).
   - Sub-minute output latency once a window closes.
   - No checkpoint resume issues — state is held in memory across micro-batches.
   - Connector: AWS Glue's built-in aws-kinesis connector (no JAR upload needed).
+  - Downside is costs associated with job runs. ($21 per day even for the smallest 
+  - cluster configuration since the job runs on a continuous basis and AWS Glue charges based on DPU units on a per hour scale)
 
-Alternative deployment: AWS EMR Serverless (--trigger-mode available_now).
-  - See docs/AWS_PRODUCTION_DEPLOYMENT.md for full context and known caveats.
+Alternative deployment: AWS EMR Serverless (--trigger-mode available_now). 
+  - Idea is to use Event bridge to trigger the EMR serverless job based on a schedule 
+  - and have the spark job fetch all records from the stream by utilizing the availableNow trigger. 
+  - This deployment would reduce costs significantly ($1 per day if the job schedule is every 30 mins) 
+  - as the cluster would scale down to zero upon completion of job execution. 
   - NOTE: Trigger.AvailableNow is not supported by the awslabs connector as of 2026
     (GitHub Issue #79). Cross-job checkpoint resume is broken. EMR is documented as
     a future option pending resolution of that upstream issue.
@@ -89,8 +94,8 @@ def create_spark_session(use_localstack=False):
             .config("spark.hadoop.fs.s3a.endpoint.region", "us-east-1")
         )
 
-        # The Kinesis connector is a JVM library. Container env vars are not
-        # forwarded into the JVM credential chain, so inject them explicitly
+        # The Kinesis connector is a JVM library. While testing locally in docker container env vars are not
+        # forwarded into the JVM credential chain, so we need to inject them explicitly
         # as system properties so SystemPropertiesCredentialsProvider picks them up.
         aws_access_key = os.getenv('AWS_ACCESS_KEY_ID', 'test')
         aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY', 'test')
@@ -144,7 +149,6 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-2', use_localstack=Fals
         # Required — no auto-resolution fallback. On Glue and EMR Serverless, private
         # DNS resolves this hostname to the Kinesis VPC Interface Endpoint ENI.
         "kinesis.endpointUrl":      f"https://kinesis.{region}.amazonaws.com",
-        # GetRecords (shared throughput) — no EFO consumer registration needed.
         "kinesis.consumerType":     "GetRecords",
     }
 
@@ -158,11 +162,6 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-2', use_localstack=Fals
             endpoint = f"http://{endpoint}"
         logger.info(f"Using LocalStack Kinesis endpoint: {endpoint}")
         options["kinesis.endpointUrl"] = endpoint
-        # v1.4.2 introduced a second region field (kinesis.kinesisRegion) that also
-        # calls getRegionNameByEndpoint() as its fallback when not explicitly set.
-        # That function tries to parse <service>.<region>.<tld> from the URL and
-        # fails on bare LocalStack hostnames like http://etl-project-2-localstack:4566.
-        # Setting kinesis.kinesisRegion explicitly bypasses the URL-parsing fallback.
         options["kinesis.kinesisRegion"] = region
 
     df = (
