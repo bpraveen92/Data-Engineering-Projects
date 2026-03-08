@@ -70,6 +70,9 @@ s3://pravbala-data-engineering-projects/Project-2/jars/hadoop-aws-3.3.4.jar,s3:/
 
 > Glue 4.0 bundles the `aws-kinesis` connector natively — no connector JAR upload needed.
 
+> **Note — alternative Glue-native approach (`GlueContext`):**
+> Glue also provides a higher-level `GlueContext.create_data_frame.from_options(connection_type="kinesis", ...)` API that handles authentication via the attached IAM role automatically, skips the JVM credential injection, and can infer the JSON schema at runtime — making the Glue-side code considerably simpler. This project intentionally uses the lower-level `spark.readStream.format("aws-kinesis")` connector instead, so that the same `spark_aggregator.py` runs unchanged in both the local Docker environment (against LocalStack) and on Glue, with only the `--local` flag as the switch. `GlueContext` does not exist outside the Glue runtime, so using it would require a separate local code path. For a pure-production pipeline where local execution is not a requirement, `GlueContext` would be the more straightforward choice.
+
 **Job parameters** (Job details → Advanced → Job parameters):
 
 | Key | Value |

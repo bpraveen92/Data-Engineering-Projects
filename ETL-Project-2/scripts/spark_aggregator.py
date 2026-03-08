@@ -128,6 +128,39 @@ def read_kinesis(spark, kinesis_stream, region='ap-south-2', use_localstack=Fals
     """
     Read streaming data from Kinesis using the AWS-native connector.
 
+    This function uses spark.readStream.format("aws-kinesis") so that the same
+    code runs in both the local Docker environment (against LocalStack) and on
+    AWS Glue / EMR Serverless — only the --local flag changes between environments.
+
+    Alternative — GlueContext API (Glue-only, simpler for pure-production use):
+        If local execution is not a requirement, Glue's higher-level
+        GlueContext.create_data_frame.from_options() is more concise: it
+        authenticates via the attached IAM role automatically (no JVM credential
+        injection needed), and can infer the JSON schema at runtime, removing the
+        need for a separate parse_events() step.
+
+        The equivalent of this function using GlueContext would be:
+
+            from awsglue.context import GlueContext
+
+            glue_context = GlueContext(spark.sparkContext)
+
+            kinesis_options = {
+                "streamARN":        "arn:aws:kinesis:ap-south-2:<account-id>:stream/music-streams",
+                "startingPosition": "TRIM_HORIZON",
+                "inferSchema":      "true",
+                "classification":   "json",
+            }
+
+            df = glue_context.create_data_frame.from_options(
+                connection_type="kinesis",
+                connection_options=kinesis_options,
+            )
+            # df already has parsed columns — no .cast("STRING") + from_json() needed.
+
+        GlueContext does not exist outside the Glue runtime, so this approach
+        cannot be used locally with LocalStack.
+
     Args:
         spark: SparkSession object.
         kinesis_stream: Kinesis stream name.
