@@ -133,6 +133,10 @@ For `etl-project-3-trip-end`:
 - `--top_routes_output_path=s3://<your-bucket>/aggregations/top_routes_hourly`
 - `--top_routes_limit=5`
 
+Why this differs from local:
+- Local Docker testing uses boto3 table scan path for simplicity (`local_scan` mode).
+- AWS job uses Glue DynamoDB connector path (`glue_connector` mode), which is the native runtime path I want in production.
+
 ## 8) Glue Database + Crawler
 
 1. Glue -> `Databases` -> create `etl_project_3_analytics`.

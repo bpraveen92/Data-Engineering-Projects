@@ -201,6 +201,11 @@ When I debug locally, I trace execution like this:
 - Applies `transform_completed_trips`.
 - Writes partitioned parquet output.
 
+Why this local read path is different from AWS:
+- Local mode uses `read_dynamo_via_scan` (boto3 scan) so Docker + LocalStack runs are straightforward.
+- AWS Glue mode uses `read_dynamo_via_glue` (Glue connector) for production-like distributed reads.
+- I keep both so local tests stay simple while AWS runs stay native to Glue runtime behavior.
+
 ## B) AWS Execution
 
 ### 1) Configure Environment

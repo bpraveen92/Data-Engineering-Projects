@@ -74,6 +74,22 @@ When I run this project, this is the exact code path:
 - Core methods: `run_local_scan_aggregation` or `run_glue_aggregation`, then `transform_completed_trips`, `transform_top_routes_per_hour`, `write_output`
 - Outcome: hourly parquet metrics are written to output storage.
 
+## Why I Use Two Dynamo Read Paths
+
+I intentionally keep two read strategies in `glue_trip_aggregator.py`:
+
+1. `local_scan` (boto3 scan + Spark DataFrame)
+- I use this for local Docker testing.
+- It works cleanly with LocalStack and does not require Glue runtime-specific connectors.
+- It keeps local debugging simple because I can inspect items before and after Spark transforms.
+
+2. `glue_connector` (Glue DynamicFrame DynamoDB connector)
+- I use this in AWS Glue runtime for production-style execution.
+- This is the native Glue path for distributed DynamoDB reads at larger scale.
+- It avoids trying to emulate full Glue connector behavior inside local dev.
+
+The reason for two paths is practical: local reliability and faster iteration on one side, AWS-native execution semantics on the other side, while reusing the same Spark transformation logic after read.
+
 ## Project Structure
 
 ```text
