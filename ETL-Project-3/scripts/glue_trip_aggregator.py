@@ -48,6 +48,53 @@ def normalize_numeric_values(row):
     return {name: (float(value) if isinstance(value, Decimal) else value) for name, value in row.items()}
 
 
+def resolve_runtime_option(argv, option_name, default_value=None):
+    """
+    Read optional argument from argv, supporting underscore and dash flag styles.
+
+    Args:
+        argv: Full argument list (for example, os.sys.argv)
+        option_name: Base option name without leading dashes
+        default_value: Value to return when option is not found
+
+    Returns:
+        String option value or default_value
+
+    Sample input:
+        argv = ["job.py", "--top_routes_limit", "5"]
+        option_name = "top_routes_limit"
+
+    Sample output:
+        "5"
+    """
+    option_variants = [option_name, option_name.replace("_", "-")]
+    for variant in option_variants:
+        flag = f"--{variant}"
+        for index, token in enumerate(argv):
+            if token == flag and index + 1 < len(argv):
+                return argv[index + 1]
+            if token.startswith(flag + "="):
+                return token.split("=", 1)[1]
+    return default_value
+
+
+def to_int_safe(value, default_value):
+    """
+    Convert value to int and fallback to default when conversion fails.
+
+    Args:
+        value: Raw value to convert
+        default_value: Default integer when conversion fails
+
+    Returns:
+        Integer value
+    """
+    try:
+        return int(value)
+    except Exception:
+        return int(default_value)
+
+
 def aggregate_completed_trips(records):
     """
     Aggregate completed lifecycle rows to hourly metrics using native PySpark transforms.
@@ -308,7 +355,14 @@ def run_local_scan_aggregation(
         spark.stop()
 
 
-def run_glue_aggregation(table_name, output_path, region, job_name):
+def run_glue_aggregation(
+    table_name,
+    output_path,
+    region,
+    job_name,
+    top_routes_output_path=None,
+    top_routes_limit=3,
+):
     """
     Run Glue connector mode aggregation end-to-end.
 
@@ -329,9 +383,18 @@ def run_glue_aggregation(table_name, output_path, region, job_name):
     source_frame = read_dynamo_via_glue(glue_context, table_name=table_name, region=region)
     result_frame = transform_completed_trips(source_frame)
     write_output(result_frame, output_path)
+    log.info("Glue aggregation completed -> %s", output_path)
+
+    if top_routes_output_path:
+        top_routes_frame = transform_top_routes_per_hour(source_frame, top_limit=top_routes_limit)
+        write_output(top_routes_frame, top_routes_output_path)
+        log.info(
+            "Glue top-routes aggregation completed -> %s (top_limit=%s)",
+            top_routes_output_path,
+            top_routes_limit,
+        )
 
     job.commit()
-    log.info("Glue aggregation completed -> %s", output_path)
 
 
 def parse_cli_args():
@@ -365,11 +428,26 @@ def main():
             os.sys.argv,
             ["JOB_NAME", "table_name", "output_path", "region"],
         )
+        top_routes_output_path = resolve_runtime_option(
+            os.sys.argv,
+            "top_routes_output_path",
+            os.getenv("TOP_ROUTES_OUTPUT_PATH"),
+        )
+        top_routes_limit = to_int_safe(
+            resolve_runtime_option(
+                os.sys.argv,
+                "top_routes_limit",
+                os.getenv("TOP_ROUTES_LIMIT", "3"),
+            ),
+            3,
+        )
         run_glue_aggregation(
             table_name=args["table_name"],
             output_path=args["output_path"],
             region=args["region"],
             job_name=args["JOB_NAME"],
+            top_routes_output_path=top_routes_output_path,
+            top_routes_limit=top_routes_limit,
         )
         return
 
@@ -380,6 +458,8 @@ def main():
             output_path=args.output_path,
             region=args.region,
             job_name=args.job_name,
+            top_routes_output_path=args.top_routes_output_path,
+            top_routes_limit=args.top_routes_limit,
         )
     else:
         run_local_scan_aggregation(

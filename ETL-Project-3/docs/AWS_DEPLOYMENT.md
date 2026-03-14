@@ -95,6 +95,9 @@ I create functions in Console and paste code directly from local `.py` files.
 - `GLUE_JOB_NAME=etl-project-3-trip-aggregation`
 - `TRIGGER_GLUE=true`
 - `AWS_REGION=<your-region>`
+- Optional for top-routes dataset:
+- `TOP_ROUTES_OUTPUT_PATH=s3://<your-bucket>/aggregations/top_routes_hourly`
+- `TOP_ROUTES_LIMIT=5`
 - Click `Deploy` in Lambda code editor.
 
 Quick sanity check I do after each function:
@@ -126,6 +129,9 @@ For `etl-project-3-trip-end`:
 - `--table_name=trip_lifecycle`
 - `--output_path=s3://<your-bucket>/aggregations/hourly_zone_metrics`
 - `--region=<your-region>`
+- Optional for second analytical output:
+- `--top_routes_output_path=s3://<your-bucket>/aggregations/top_routes_hourly`
+- `--top_routes_limit=5`
 
 ## 8) Glue Database + Crawler
 
@@ -135,6 +141,12 @@ For `etl-project-3-trip-end`:
 - Source: `s3://<your-bucket>/aggregations/hourly_zone_metrics/`
 - Target DB: `etl_project_3_analytics`
 - Table prefix: `trip_metrics_`
+
+Optional second crawler for top-routes output:
+- Name: `etl-project-3-top-routes-crawler`
+- Source: `s3://<your-bucket>/aggregations/top_routes_hourly/`
+- Target DB: `etl_project_3_analytics`
+- Table prefix: `trip_top_routes_`
 
 ## 9) Athena Setup
 
@@ -155,6 +167,7 @@ Then I verify:
 2. DynamoDB table has completed records.
 3. Glue runs get triggered after trip_end ingestion.
 4. Crawler refresh works and Athena queries return rows.
+5. If top-routes is enabled, second top-routes crawler also returns rows in Athena.
 
 ## AWS Runtime Flow in Code
 
@@ -164,7 +177,7 @@ When the AWS resources are live, the runtime sequence is:
 2. `lambda_trip_start.handler` writes start-side fields to `trip_lifecycle`.
 3. `lambda_trip_end.handler` updates end-side fields and marks trip completion.
 4. `lambda_trip_end.handler` calls `start_glue_job` for `etl-project-3-trip-aggregation`.
-5. `glue_trip_aggregator.py` runs `run_glue_aggregation` and writes hourly parquet.
+5. `glue_trip_aggregator.py` runs `run_glue_aggregation` and writes hourly parquet (+ top-routes parquet when enabled).
 6. Glue crawler updates catalog so Athena queries can read fresh partitions.
 
 ## Cost Notes

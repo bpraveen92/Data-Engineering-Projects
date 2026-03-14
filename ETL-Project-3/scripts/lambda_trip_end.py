@@ -196,12 +196,21 @@ def start_glue_job(glue_client, job_name, run_timestamp):
     Returns:
         Glue JobRunId string
     """
+    glue_arguments = {
+        "--triggered_by": "trip_end_lambda",
+        "--run_timestamp": run_timestamp,
+    }
+
+    top_routes_output_path = os.getenv("TOP_ROUTES_OUTPUT_PATH")
+    top_routes_limit = os.getenv("TOP_ROUTES_LIMIT")
+    if top_routes_output_path:
+        glue_arguments["--top_routes_output_path"] = top_routes_output_path
+    if top_routes_limit:
+        glue_arguments["--top_routes_limit"] = str(top_routes_limit)
+
     response = glue_client.start_job_run(
         JobName=job_name,
-        Arguments={
-            "--triggered_by": "trip_end_lambda",
-            "--run_timestamp": run_timestamp,
-        },
+        Arguments=glue_arguments,
     )
     return response["JobRunId"]
 

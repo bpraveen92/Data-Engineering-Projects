@@ -260,6 +260,12 @@ aws glue get-job-runs \
 aws glue start-crawler --name etl-project-3-trip-metrics-crawler --region "$AWS_REGION"
 ```
 
+If top-routes output is enabled in Lambda/Glue job args:
+
+```bash
+aws glue start-crawler --name etl-project-3-top-routes-crawler --region "$AWS_REGION"
+```
+
 Then I run SQL from `artifacts/sql/athena_queries.sql`.
 
 ## Event Contract Examples

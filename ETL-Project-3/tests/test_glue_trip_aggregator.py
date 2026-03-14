@@ -1,6 +1,11 @@
 from pyspark.sql import SparkSession
 
-from scripts.glue_trip_aggregator import aggregate_completed_trips, transform_top_routes_per_hour
+from scripts.glue_trip_aggregator import (
+    aggregate_completed_trips,
+    resolve_runtime_option,
+    to_int_safe,
+    transform_top_routes_per_hour,
+)
 
 
 def test_aggregate_completed_trips_filters_and_groups_hourly():
@@ -153,3 +158,22 @@ def test_transform_top_routes_per_hour_ranks_routes_with_window_function():
     assert second_hour["dropoff_location_id"] == 22
     assert second_hour["trip_count"] == 1
     assert second_hour["route_rank_in_hour"] == 1
+
+
+def test_resolve_runtime_option_supports_underscore_and_dash():
+    argv = [
+        "job.py",
+        "--top_routes_output_path",
+        "s3://bucket/path-a",
+        "--top-routes-limit=7",
+    ]
+
+    assert resolve_runtime_option(argv, "top_routes_output_path") == "s3://bucket/path-a"
+    assert resolve_runtime_option(argv, "top_routes_limit") == "7"
+    assert resolve_runtime_option(argv, "missing_key", "fallback") == "fallback"
+
+
+def test_to_int_safe_falls_back_to_default():
+    assert to_int_safe("9", 3) == 9
+    assert to_int_safe("invalid", 3) == 3
+    assert to_int_safe(None, 5) == 5
