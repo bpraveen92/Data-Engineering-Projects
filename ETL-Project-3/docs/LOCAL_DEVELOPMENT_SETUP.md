@@ -82,9 +82,9 @@ INFO Publishing complete. start=4999 end=4999
 4. `make docker-runner`
 ```text
 INFO Fetched stream records: trip_start=4999 trip_end=4999
-INFO trip_start summary={'processed': 4999, 'failed': 0}
-INFO trip_end summary={'processed': 4468, 'failed': 531}
-INFO Local aggregation completed -> /workspace/output/aggregations
+INFO trip_start summary={'processed': 4999, 'failed': 0, 'staged_completed_trips': 0}
+INFO trip_end summary={'processed': 4468, 'failed': 531, 'staged_completed_trips': 4468}
+INFO Local incremental aggregation completed summary={'metric_rows': 3460, 'affected_hours': 25, 'top_route_rows': 0, 'new_objects': 1145}
 ```
 
 If I want to generate an additional analytical dataset for top routes per hour:
@@ -113,7 +113,13 @@ I use this to create local streams, DynamoDB table, and output bucket in LocalSt
 I use this to publish `trip_start.csv` and `trip_end.csv` into their respective streams in batches.
 
 3. `local_pipeline_runner.py`
-I use this to pull stream records, invoke both Lambda handlers, and run aggregation in `local_scan` mode.
+I use this to pull stream records, invoke both Lambda handlers, and then run incremental aggregation in `local_staging` mode.
+
+What happens during `make docker-runner`:
+- `trip_start` writes state into DynamoDB.
+- `trip_end` updates the same DynamoDB rows.
+- `trip_end` also appends compact completed-trip JSONL rows into `staging/completed_trips/...` inside the LocalStack bucket.
+- `glue_trip_aggregator.py` reads only the staged files that are newer than the checkpoint and rewrites only the affected hourly output partitions.
 
 ## One-command Run
 

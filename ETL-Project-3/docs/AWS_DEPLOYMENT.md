@@ -29,6 +29,8 @@ I use these names across services to avoid confusion:
 2. Create a bucket in your target region.
 3. Create folders:
 - `scripts/`
+- `staging/completed_trips/`
+- `checkpoints/`
 - `aggregations/hourly_zone_metrics/`
 - `athena-results/`
 4. Upload `scripts/glue_trip_aggregator.py` into `scripts/`.
@@ -59,7 +61,9 @@ I create two roles.
 - Inline permissions:
 - `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:PutItem` on `trip_lifecycle`
 - `kinesis:GetRecords`, `kinesis:GetShardIterator`, `kinesis:DescribeStream`, `kinesis:DescribeStreamSummary`, `kinesis:ListShards` on both streams
-- `glue:StartJobRun` on Glue job
+- `s3:PutObject` on `s3://<your-bucket>/staging/completed_trips/*`
+- `s3:PutObject` on `s3://<your-bucket>/checkpoints/*`
+- Optional only if I want Lambda to force-start Glue: `glue:StartJobRun` on Glue job
 
 ### Glue role: `etl-project-3-glue-role`
 
@@ -92,8 +96,10 @@ I create functions in Console and paste code directly from local `.py` files.
 - Handler: `lambda_function.handler`
 - Env vars:
 - `TRIP_LIFECYCLE_TABLE=trip_lifecycle`
-- `GLUE_JOB_NAME=etl-project-3-trip-aggregation`
-- `TRIGGER_GLUE=true`
+- `AGGREGATION_BUCKET=<your-bucket>`
+- `COMPLETED_TRIP_STAGING_PREFIX=staging/completed_trips`
+- `AGGREGATION_CHECKPOINT_URI=s3://<your-bucket>/checkpoints/hourly_zone_metrics_checkpoint.json`
+- `TRIGGER_GLUE=false`
 - `AWS_REGION=<your-region>`
 - Optional for top-routes dataset:
 - `TOP_ROUTES_OUTPUT_PATH=s3://<your-bucket>/aggregations/top_routes_hourly`
@@ -111,12 +117,37 @@ For `etl-project-3-trip-start`:
 - Stream: `trip-start-stream`
 - Starting position: `Latest`
 - Batch size: `100`
+- Maximum batching window: `5 seconds`
 
 For `etl-project-3-trip-end`:
 - Trigger type: Kinesis
 - Stream: `trip-end-stream`
 - Starting position: `Latest`
 - Batch size: `100`
+- Maximum batching window: `5 seconds`
+
+Why I use this instead of EventBridge:
+- Kinesis event source mapping is already the native pull model for Lambda.
+- AWS keeps polling the stream on our behalf, tracks checkpoints, and only invokes Lambda when records are available.
+- That means I do not need a scheduled EventBridge rule just to wake Lambda up and ask Kinesis if anything is there.
+
+What this looks like day to day:
+- If no new records arrive, Lambda stays effectively idle.
+- If a few records arrive, Lambda is invoked in small batches after the batching window or batch size is met.
+- If traffic grows, throughput is still bounded by shard count, so shard sizing matters.
+
+Operational limits I keep in mind:
+- Concurrency is tied closely to Kinesis shard parallelism, so under-sharded streams can create lag.
+- If one record in a batch keeps failing and batch failure handling is not tuned well, retries can hold the shard back.
+- Glue startup latency is much higher than Lambda latency, so I do not want every `trip_end` batch to start a Glue run.
+- The cleaner shape here is to let Lambda append compact completed-trip events to S3, then let a scheduled Glue job reprocess only the affected staged hours.
+
+What I would monitor in production:
+- Lambda `IteratorAge` for both stream consumers
+- Lambda error count and retry behavior
+- Kinesis read throughput and shard pressure
+- Glue concurrent job runs and queueing
+- DynamoDB throttling or hot partition behavior on `trip_id`
 
 ## 7) Glue Job
 
@@ -126,7 +157,9 @@ For `etl-project-3-trip-end`:
 4. Script path: `s3://<your-bucket>/scripts/glue_trip_aggregator.py`.
 5. Glue version: 4.0 (or current supported Spark runtime).
 6. Job parameters:
-- `--table_name=trip_lifecycle`
+- `--staging_bucket=<your-bucket>`
+- `--staging_prefix=staging/completed_trips`
+- `--checkpoint_uri=s3://<your-bucket>/checkpoints/hourly_zone_metrics_checkpoint.json`
 - `--output_path=s3://<your-bucket>/aggregations/hourly_zone_metrics`
 - `--region=<your-region>`
 - Optional for second analytical output:
@@ -134,8 +167,25 @@ For `etl-project-3-trip-end`:
 - `--top_routes_limit=5`
 
 Why this differs from local:
-- Local Docker testing uses boto3 table scan path for simplicity (`local_scan` mode).
-- AWS job uses Glue DynamoDB connector path (`glue_connector` mode), which is the native runtime path I want in production.
+- Local Docker testing uses boto3 against LocalStack S3 for staged-file reads (`local_staging` mode).
+- AWS job reads the affected staged S3 prefixes directly inside Glue runtime (`glue_staging` mode).
+
+## 7.1) Glue Scheduling
+
+This is the piece I changed after the first cut of the project.
+I no longer want `trip_end` Lambda to kick off a full Glue run every time it sees a successful batch.
+
+What I do instead:
+- keep `TRIGGER_GLUE=false` on `etl-project-3-trip-end`
+- create an EventBridge schedule for the Glue job, usually every hour
+- let Glue read only the staged files that arrived after the last checkpoint
+- let Glue overwrite only the affected hourly partitions in the curated output
+
+If I ever want to force an on-demand run for a demo, I can still temporarily set:
+- `GLUE_JOB_NAME=etl-project-3-trip-aggregation`
+- `TRIGGER_GLUE=true`
+
+But that is not the daily operating mode I recommend.
 
 ## 8) Glue Database + Crawler
 
@@ -169,9 +219,11 @@ python3 scripts/kinesis_trip_producer.py --endpoint-url "" --region "<your-regio
 Then I verify:
 1. Lambda CloudWatch logs show successful batch processing.
 2. DynamoDB table has completed records.
-3. Glue runs get triggered after trip_end ingestion.
-4. Crawler refresh works and Athena queries return rows.
-5. If top-routes is enabled, second top-routes crawler also returns rows in Athena.
+3. `trip_end` Lambda is writing compact staged JSONL files into `staging/completed_trips/`.
+4. Scheduled Glue runs are picking up only new staged files after the checkpoint.
+5. Curated output lands under `aggregations/hourly_zone_metrics/`.
+6. Crawler refresh works and Athena queries return rows.
+7. If top-routes is enabled, second top-routes crawler also returns rows in Athena.
 
 ## AWS Runtime Flow in Code
 
@@ -180,8 +232,8 @@ When the AWS resources are live, the runtime sequence is:
 1. `kinesis_trip_producer.py` publishes start/end events to two streams.
 2. `lambda_trip_start.handler` writes start-side fields to `trip_lifecycle`.
 3. `lambda_trip_end.handler` updates end-side fields and marks trip completion.
-4. `lambda_trip_end.handler` calls `start_glue_job` for `etl-project-3-trip-aggregation`.
-5. `glue_trip_aggregator.py` runs `run_glue_aggregation` and writes hourly parquet (+ top-routes parquet when enabled).
+4. `lambda_trip_end.handler` appends valid completed-trip rows into `staging/completed_trips/`.
+5. Scheduled Glue runs call `run_glue_staging_aggregation` and rewrite only the affected hourly parquet partitions (+ top-routes parquet when enabled).
 6. Glue crawler updates catalog so Athena queries can read fresh partitions.
 
 ## Cost Notes

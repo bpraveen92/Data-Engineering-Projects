@@ -89,11 +89,11 @@ INFO Fetched stream records: trip_start=4999 trip_end=4999
 INFO trip_start batch result={'processed': 100, 'failed': 0, 'table': 'trip_lifecycle'}
 ...
 WARNING Skipping invalid trip_end event; missing=['rate_code', 'passenger_count', 'payment_type', 'trip_type'] payload={...}
-INFO trip_end batch result={'processed': 92, 'failed': 8, 'upserted_without_start': 0, 'table': 'trip_lifecycle', 'glue_job_name': None, 'glue_run_id': None}
+INFO trip_end batch result={'processed': 92, 'failed': 8, 'upserted_without_start': 0, 'staged_completed_trips': 92, 'table': 'trip_lifecycle', 'glue_job_name': None, 'glue_run_id': None}
 ...
-INFO trip_start summary={'processed': 4999, 'failed': 0}
-INFO trip_end summary={'processed': 4468, 'failed': 531}
-INFO Local aggregation completed -> /workspace/output/aggregations
+INFO trip_start summary={'processed': 4999, 'failed': 0, 'staged_completed_trips': 0}
+INFO trip_end summary={'processed': 4468, 'failed': 531, 'staged_completed_trips': 4468}
+INFO Local incremental aggregation completed summary={'metric_rows': 3460, 'affected_hours': 25, 'top_route_rows': 0, 'new_objects': 1145}
 INFO Local pipeline completed. Aggregation output path=/workspace/output/aggregations
 ```
 
@@ -101,7 +101,7 @@ This flow does four things in order:
 1. Reads both Kinesis streams.
 2. Invokes `lambda_trip_start.handler`.
 3. Invokes `lambda_trip_end.handler`.
-4. Runs aggregation and writes parquet to `./output/aggregations`.
+4. Appends valid completed trips into staged S3 files, then runs incremental aggregation and writes parquet to `./output/aggregations`.
 
 Optional analytical view (top routes per hour):
 
@@ -195,16 +195,18 @@ When I debug locally, I trace execution like this:
 - Decodes each Kinesis record.
 - Validates required fields.
 - Updates or upserts trip lifecycle state using `write_trip_end`.
+- Builds compact completed-trip rows and appends them to `staging/completed_trips/...`.
 
-4. `run_local_scan_aggregation()` in `glue_trip_aggregator.py`
-- Reads lifecycle rows from DynamoDB local endpoint.
+4. `run_local_staging_aggregation()` in `glue_trip_aggregator.py`
+- Reads only the newly affected staged JSONL files from LocalStack S3.
+- Uses the checkpoint object to skip staged files that were already processed in earlier runs.
 - Applies `transform_completed_trips`.
 - Writes partitioned parquet output.
 
 Why this local read path is different from AWS:
-- Local mode uses `read_dynamo_via_scan` (boto3 scan) so Docker + LocalStack runs are straightforward.
-- AWS Glue mode uses `read_dynamo_via_glue` (Glue connector) for production-like distributed reads.
-- I keep both so local tests stay simple while AWS runs stay native to Glue runtime behavior.
+- Local mode uses boto3 against LocalStack S3 so Docker runs stay simple.
+- AWS Glue mode reads the affected staged S3 prefixes directly with Spark inside Glue runtime.
+- I keep both so local tests stay practical while AWS runs stay close to the real scheduled Glue behavior.
 
 ## B) AWS Execution
 

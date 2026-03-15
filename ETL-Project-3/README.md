@@ -7,9 +7,9 @@ At a high level, this is what I’m doing:
 
 1. I ingest `trip_start` events into DynamoDB.
 2. I ingest `trip_end` events and update the same trip records.
-3. I trigger a Glue PySpark job after end events land.
-4. I write hourly aggregated parquet to S3.
-5. I expose that output through Glue Crawler + Athena.
+3. I write compact completed-trip events from `trip_end` into an append-only S3 staging area.
+4. I run Glue on a schedule and aggregate only the newly affected staged hours.
+5. I expose the curated parquet output through Glue Crawler + Athena.
 
 ## Pipeline Architecture
 
@@ -19,10 +19,12 @@ trip_start.csv ------------------------> Kinesis: trip-start-stream -----> Lambd
 
 trip_end.csv --------------------------> Kinesis: trip-end-stream -------> Lambda trip_end -------> DynamoDB trip_lifecycle
                                                                                  (update/upsert)           |
-                                                                                                            +--> Glue StartJobRun
+                                                                                                           +--> S3 staging/completed_trips
+                                                                                                                     |
+                                                                                                      EventBridge schedule / manual Glue run
                                                                                                                      |
                                                                                                                      v
-                                                                                                       Glue PySpark aggregation
+                                                                                                    Glue incremental PySpark aggregation
                                                                                                                      |
                                                                                                                      v
                                                                                                            S3 parquet (partitioned)
@@ -32,13 +34,25 @@ trip_end.csv --------------------------> Kinesis: trip-end-stream -------> Lambd
                                                                                                                     Athena
 ```
 
+## Trigger Model I Recommend
+
+For AWS deployment, I recommend native Kinesis -> Lambda event source mappings instead of EventBridge schedules.
+
+- Lambda is invoked only when records are available in the stream.
+- AWS manages shard polling, checkpoints, and retry behavior for us.
+- When the stream is quiet, there is nothing for us to poll manually, so the function is effectively idle.
+
+I do not recommend scheduled EventBridge polling for this project because it adds extra lag, manual checkpoint logic, and more moving parts without giving us a real benefit here.
+
 ## Core Behavior I’m Enforcing
 
 - In `trip_start` Lambda, I do deterministic updates keyed by `trip_id`, so duplicate start events stay idempotent.
 - In `trip_end` Lambda, I update existing trips, but if start is missing I upsert and mark `data_quality=missing_start`.
-- In Glue, I aggregate only completed and valid records (`trip_status=completed` and not `missing_start`).
-- I aggregate at hourly grain using `event_hour = date_trunc('hour', end_dropoff_datetime)`.
+- In `trip_end` Lambda, I also emit a compact analytics record to `staging/completed_trips/...` only when the trip is valid and complete.
+- In Glue, I aggregate only completed and valid staged records (`trip_status=completed` and not `missing_start`).
+- I aggregate at hourly grain using `event_hour = date_trunc('hour', dropoff_datetime)`.
 - I can also compute top routes per hour using a Spark window ranking (`row_number` over each hour).
+- I keep a checkpoint in S3 so every Glue run only looks at newly arrived staged files, then rewrites only the affected hourly partitions.
 
 ## Code Flow Walkthrough
 
@@ -66,29 +80,29 @@ When I run this project, this is the exact code path:
 
 5. `scripts/lambda_trip_end.py`
 - Entry: `handler(event, context)`
-- Core methods: `decode_kinesis_record`, `validate_end_event`, `write_trip_end`, `start_glue_job`
-- Outcome: trip rows are completed and Glue is triggered (AWS mode).
+- Core methods: `decode_kinesis_record`, `validate_end_event`, `write_trip_end`, `build_completed_trip_event`, `write_staging_records`
+- Outcome: trip rows are completed in DynamoDB and valid completed trips are appended to staged S3 files.
 
 6. `scripts/glue_trip_aggregator.py`
 - Entry: `main()`
-- Core methods: `run_local_scan_aggregation` or `run_glue_aggregation`, then `transform_completed_trips`, `transform_top_routes_per_hour`, `write_output`
-- Outcome: hourly parquet metrics are written to output storage.
+- Core methods: `run_local_staging_aggregation` or `run_glue_staging_aggregation`, then `transform_completed_trips`, `transform_top_routes_per_hour`, `write_output`
+- Outcome: only newly affected hourly parquet partitions are recalculated and written to output storage.
 
-## Why I Use Two Dynamo Read Paths
+## Why I Use Two Staging Read Paths
 
-I intentionally keep two read strategies in `glue_trip_aggregator.py`:
+I intentionally keep two staged-file read strategies in `glue_trip_aggregator.py`:
 
-1. `local_scan` (boto3 scan + Spark DataFrame)
+1. `local_staging` (boto3 S3 reads + Spark DataFrame)
 - I use this for local Docker testing.
-- It works cleanly with LocalStack and does not require Glue runtime-specific connectors.
-- It keeps local debugging simple because I can inspect items before and after Spark transforms.
+- It works cleanly with LocalStack and does not require `s3a` or Glue runtime-specific extras.
+- It keeps local debugging simple because I can inspect staged JSONL rows before Spark transforms.
 
-2. `glue_connector` (Glue DynamicFrame DynamoDB connector)
+2. `glue_staging` (Glue Spark reads from S3 prefixes)
 - I use this in AWS Glue runtime for production-style execution.
-- This is the native Glue path for distributed DynamoDB reads at larger scale.
-- It avoids trying to emulate full Glue connector behavior inside local dev.
+- Glue can read the staged S3 prefixes directly and then overwrite only the affected output partitions.
+- It avoids rescanning the operational DynamoDB table every time the job runs.
 
-The reason for two paths is practical: local reliability and faster iteration on one side, AWS-native execution semantics on the other side, while reusing the same Spark transformation logic after read.
+The reason for two paths is practical: local reliability and faster iteration on one side, AWS-native S3 reads on the other side, while reusing the same Spark transformation logic after read.
 
 ## Project Structure
 
@@ -176,6 +190,19 @@ make local-all
 For this project, I’m intentionally keeping AWS setup manual via Console (not full automation).
 I do not create Lambda resources through code; I create them manually in the AWS UI.
 I also keep Lambda deployment lightweight by using the code editor with the `.py` source from `scripts/lambda_trip_start.py` and `scripts/lambda_trip_end.py` (no zip packaging step).
+
+## Daily Runtime Expectations
+
+On a normal day in AWS, this is how I expect the pipeline to behave:
+
+1. New trip records land in Kinesis.
+2. AWS invokes the matching Lambda through the Kinesis event source mapping.
+3. Lambda writes or updates trip state in DynamoDB.
+4. `trip_end` Lambda appends compact completed-trip rows into staged S3 files.
+5. Glue runs on a schedule, reads only newly discovered staged files, and rewrites the affected hourly partitions.
+6. Crawlers refresh Athena-facing metadata.
+
+The main limitation I keep in mind is that Kinesis-triggered Lambda scales primarily with shard count, so one small shard can become the bottleneck. On the analytics side, this design is much cheaper than full-table DynamoDB recomputes, but it still depends on partition overwrite patterns and checkpoint correctness, so I monitor the staging prefix and checkpoint object closely.
 
 ```bash
 cp .env.example .env

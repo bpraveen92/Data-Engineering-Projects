@@ -1,5 +1,5 @@
 """
-Trip end Lambda: Kinesis payload -> DynamoDB update/upsert -> Glue trigger.
+Trip end Lambda: Kinesis payload -> DynamoDB update/upsert -> staged completed-trip write.
 
 This module handles trip_end events. If a matching trip_start record is missing,
 it writes a partial row and marks data_quality so downstream aggregation can filter.
@@ -11,6 +11,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from decimal import Decimal
+from uuid import uuid4
 
 import boto3
 
@@ -125,6 +126,23 @@ def get_glue_client():
     return boto3.client("glue", **options)
 
 
+def get_s3_client():
+    """
+    Create S3 client using env-aware endpoint.
+
+    Returns:
+        boto3 S3 client
+    """
+    endpoint_url = os.getenv("S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL")
+    region_name = os.getenv("AWS_REGION", "ap-south-2")
+
+    options = {"region_name": region_name}
+    if endpoint_url:
+        options["endpoint_url"] = endpoint_url
+
+    return boto3.client("s3", **options)
+
+
 def write_trip_end(table, payload, received_at):
     """
     Write trip_end payload and mark whether start row was missing.
@@ -135,10 +153,10 @@ def write_trip_end(table, payload, received_at):
         received_at: Ingestion timestamp (ISO UTC)
 
     Returns:
-        True if start record was missing and row was upserted
+        Dict with missing_start flag and current existing item snapshot
 
     Example output:
-        True  # means record_source=trip_end_upsert, data_quality=missing_start
+        {"missing_start": True, "existing_item": None}
     """
     trip_id = payload["trip_id"]
     existing_item = table.get_item(Key={"trip_id": trip_id}).get("Item")
@@ -181,7 +199,78 @@ def write_trip_end(table, payload, received_at):
         ReturnValues="NONE",
     )
 
-    return missing_start
+    return {"missing_start": missing_start, "existing_item": existing_item}
+
+
+def build_completed_trip_event(existing_item, payload, received_at):
+    """
+    Build compact completed-trip event for analytical staging.
+
+    Args:
+        existing_item: Existing DynamoDB lifecycle item with start-side fields
+        payload: Validated trip_end payload
+        received_at: Lambda processing timestamp
+
+    Returns:
+        Compact event dict or None when start-side fields are missing
+    """
+    if not existing_item:
+        return None
+    if existing_item.get("start_pickup_location_id") is None:
+        return None
+    if existing_item.get("start_dropoff_location_id") is None:
+        return None
+
+    return {
+        "trip_id": payload["trip_id"],
+        "pickup_location_id": int(existing_item["start_pickup_location_id"]),
+        "dropoff_location_id": int(existing_item["start_dropoff_location_id"]),
+        "dropoff_datetime": payload["dropoff_datetime"],
+        "fare_amount": float(payload["fare_amount"]),
+        "tip_amount": float(payload["tip_amount"]),
+        "trip_distance": float(payload["trip_distance"]),
+        "trip_status": "completed",
+        "data_quality": "ok",
+        "record_emitted_at": received_at,
+        "record_source": "trip_end_update",
+    }
+
+
+def write_staging_records(s3_client, bucket_name, staging_prefix, records):
+    """
+    Write compact completed-trip events to append-only S3 staging files.
+
+    Args:
+        s3_client: boto3 S3 client
+        bucket_name: Target S3 bucket
+        staging_prefix: Base prefix for staged completed-trip events
+        records: List of compact completed-trip event dicts
+    """
+    grouped_records = {}
+    for record in records:
+        event_time = datetime.fromisoformat(record["dropoff_datetime"])
+        partition_prefix = (
+            f"{staging_prefix.rstrip('/')}"
+            f"/year={event_time.strftime('%Y')}"
+            f"/month={event_time.strftime('%m')}"
+            f"/day={event_time.strftime('%d')}"
+            f"/hour={event_time.strftime('%H')}"
+        )
+        grouped_records.setdefault(partition_prefix, []).append(record)
+
+    for partition_prefix, partition_records in grouped_records.items():
+        object_key = (
+            f"{partition_prefix}/completed_trip_batch_"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}_"
+            f"{uuid4().hex}.jsonl"
+        )
+        body_text = "\n".join(json.dumps(record) for record in partition_records)
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=object_key,
+            Body=body_text.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
 
 
 def start_glue_job(glue_client, job_name, run_timestamp):
@@ -203,6 +292,22 @@ def start_glue_job(glue_client, job_name, run_timestamp):
 
     top_routes_output_path = os.getenv("TOP_ROUTES_OUTPUT_PATH")
     top_routes_limit = os.getenv("TOP_ROUTES_LIMIT")
+    staging_bucket = os.getenv("AGGREGATION_BUCKET")
+    staging_prefix = os.getenv("COMPLETED_TRIP_STAGING_PREFIX")
+    checkpoint_uri = os.getenv("AGGREGATION_CHECKPOINT_URI")
+    aggregation_output_path = os.getenv("AGGREGATION_OUTPUT_PATH")
+    if not aggregation_output_path and staging_bucket:
+        aggregation_prefix = os.getenv("AGGREGATION_PREFIX", "aggregations/hourly_zone_metrics")
+        aggregation_output_path = f"s3://{staging_bucket}/{aggregation_prefix.lstrip('/')}"
+
+    if staging_bucket:
+        glue_arguments["--staging_bucket"] = staging_bucket
+    if staging_prefix:
+        glue_arguments["--staging_prefix"] = staging_prefix
+    if checkpoint_uri:
+        glue_arguments["--checkpoint_uri"] = checkpoint_uri
+    if aggregation_output_path:
+        glue_arguments["--output_path"] = aggregation_output_path
     if top_routes_output_path:
         glue_arguments["--top_routes_output_path"] = top_routes_output_path
     if top_routes_limit:
@@ -229,21 +334,26 @@ def handler(event, context):
     Example output:
         {
           "statusCode": 200,
-          "body": "{\"processed\": 10, \"failed\": 0, \"upserted_without_start\": 1, ...}"
+          "body": "{\"processed\": 10, \"failed\": 0, \"upserted_without_start\": 1, \"staged_completed_trips\": 9, ...}"
         }
     """
     del context
 
     table_name = os.getenv("TRIP_LIFECYCLE_TABLE", "trip_lifecycle")
     glue_job_name = os.getenv("GLUE_JOB_NAME", "")
-    should_trigger_glue = os.getenv("TRIGGER_GLUE", "true").lower() == "true"
+    should_trigger_glue = os.getenv("TRIGGER_GLUE", "false").lower() == "true"
+    staging_bucket = os.getenv("AGGREGATION_BUCKET", "")
+    staging_prefix = os.getenv("COMPLETED_TRIP_STAGING_PREFIX", "staging/completed_trips")
 
     table = get_dynamo_table(table_name)
     glue_client = get_glue_client() if glue_job_name and should_trigger_glue else None
+    s3_client = get_s3_client() if staging_bucket else None
 
     processed_count = 0
     failed_count = 0
     upserted_without_start = 0
+    staged_count = 0
+    staged_records = []
 
     for record in event.get("Records", []):
         payload = decode_kinesis_record(record)
@@ -258,13 +368,25 @@ def handler(event, context):
             continue
 
         try:
-            was_upsert = write_trip_end(table, payload, now_iso_utc())
+            received_at = now_iso_utc()
+            write_result = write_trip_end(table, payload, received_at)
             processed_count += 1
-            if was_upsert:
+            if write_result["missing_start"]:
                 upserted_without_start += 1
+            else:
+                staged_event = build_completed_trip_event(write_result["existing_item"], payload, received_at)
+                if staged_event:
+                    staged_records.append(staged_event)
         except Exception:
             log.exception("Failed processing trip_end event for trip_id=%s", payload.get("trip_id"))
             failed_count += 1
+
+    if staged_records and s3_client and staging_bucket:
+        try:
+            write_staging_records(s3_client, staging_bucket, staging_prefix, staged_records)
+            staged_count = len(staged_records)
+        except Exception:
+            log.exception("Failed writing completed-trip staging records")
 
     glue_run_id = None
     if processed_count > 0 and glue_client and glue_job_name:
@@ -277,6 +399,7 @@ def handler(event, context):
         "processed": processed_count,
         "failed": failed_count,
         "upserted_without_start": upserted_without_start,
+        "staged_completed_trips": staged_count,
         "table": table_name,
         "glue_job_name": glue_job_name or None,
         "glue_run_id": glue_run_id,

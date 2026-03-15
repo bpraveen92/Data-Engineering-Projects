@@ -8,7 +8,7 @@ import os
 
 import boto3
 
-from scripts.glue_trip_aggregator import run_local_scan_aggregation
+from scripts.glue_trip_aggregator import run_local_staging_aggregation
 from scripts.lambda_trip_end import handler as trip_end_handler
 from scripts.lambda_trip_start import handler as trip_start_handler
 
@@ -126,21 +126,23 @@ def summarize_batch_output(handler_outputs):
         handler_outputs: Lambda-style response objects
 
     Returns:
-        Dict with processed and failed counters
+        Dict with processed, failed, and staged counters
 
     Sample input:
-        [{"statusCode": 200, "body": "{\"processed\": 100, \"failed\": 0}"}]
+        [{"statusCode": 200, "body": "{\"processed\": 100, \"failed\": 0, \"staged_completed_trips\": 98}"}]
 
     Sample output:
-        {"processed": 100, "failed": 0}
+        {"processed": 100, "failed": 0, "staged_completed_trips": 98}
     """
     processed_count = 0
     failed_count = 0
+    staged_count = 0
     for output in handler_outputs:
         body = json.loads(output.get("body", "{}"))
         processed_count += int(body.get("processed", 0))
         failed_count += int(body.get("failed", 0))
-    return {"processed": processed_count, "failed": failed_count}
+        staged_count += int(body.get("staged_completed_trips", 0))
+    return {"processed": processed_count, "failed": failed_count, "staged_completed_trips": staged_count}
 
 
 def parse_cli_args():
@@ -160,6 +162,18 @@ def parse_cli_args():
     parser.add_argument("--start-stream", default=os.getenv("TRIP_START_STREAM", "trip-start-stream"))
     parser.add_argument("--end-stream", default=os.getenv("TRIP_END_STREAM", "trip-end-stream"))
     parser.add_argument("--table-name", default=os.getenv("TRIP_LIFECYCLE_TABLE", "trip_lifecycle"))
+    parser.add_argument("--staging-bucket", default=os.getenv("AGGREGATION_BUCKET", "etl-project-3-analytics-local"))
+    parser.add_argument(
+        "--staging-prefix",
+        default=os.getenv("COMPLETED_TRIP_STAGING_PREFIX", "staging/completed_trips"),
+    )
+    parser.add_argument(
+        "--checkpoint-uri",
+        default=os.getenv(
+            "AGGREGATION_CHECKPOINT_URI",
+            "s3://etl-project-3-analytics-local/checkpoints/hourly_zone_metrics_checkpoint.json",
+        ),
+    )
     parser.add_argument("--output-path", default=os.getenv("LOCAL_OUTPUT_PATH", "./output/aggregations"))
     parser.add_argument("--batch-size", type=int, default=100)
     return parser.parse_args()
@@ -184,8 +198,12 @@ def main():
     os.environ["AWS_REGION"] = args.region
     os.environ["AWS_ENDPOINT_URL"] = args.endpoint_url
     os.environ["DYNAMODB_ENDPOINT_URL"] = args.endpoint_url
+    os.environ["S3_ENDPOINT_URL"] = args.endpoint_url
     os.environ["TRIP_LIFECYCLE_TABLE"] = args.table_name
     os.environ["TRIGGER_GLUE"] = "false"
+    os.environ["AGGREGATION_BUCKET"] = args.staging_bucket
+    os.environ["COMPLETED_TRIP_STAGING_PREFIX"] = args.staging_prefix
+    os.environ["AGGREGATION_CHECKPOINT_URI"] = args.checkpoint_uri
 
     kinesis_client = boto3.client(
         "kinesis",
@@ -205,14 +223,17 @@ def main():
     log.info("trip_start summary=%s", summarize_batch_output(start_outputs))
     log.info("trip_end summary=%s", summarize_batch_output(end_outputs))
 
-    run_local_scan_aggregation(
-        table_name=args.table_name,
+    aggregation_summary = run_local_staging_aggregation(
+        staging_bucket=args.staging_bucket,
+        staging_prefix=args.staging_prefix,
+        checkpoint_uri=args.checkpoint_uri,
         output_path=args.output_path,
         region=args.region,
         endpoint_url=args.endpoint_url,
         top_routes_output_path=os.getenv("TOP_ROUTES_OUTPUT_PATH"),
         top_routes_limit=int(os.getenv("TOP_ROUTES_LIMIT", "3")),
     )
+    log.info("Aggregation summary=%s", aggregation_summary)
     log.info("Local pipeline completed. Aggregation output path=%s", args.output_path)
 
 

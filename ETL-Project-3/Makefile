@@ -36,7 +36,7 @@ docker-producer:
 	docker exec etl-project-3-app python3 scripts/kinesis_trip_producer.py --endpoint-url http://etl-project-3-localstack:4566
 
 docker-runner:
-	docker exec -e TOP_ROUTES_OUTPUT_PATH -e TOP_ROUTES_LIMIT etl-project-3-app python3 scripts/local_pipeline_runner.py --endpoint-url http://etl-project-3-localstack:4566 --output-path /workspace/output/aggregations
+	docker exec -e AGGREGATION_BUCKET -e COMPLETED_TRIP_STAGING_PREFIX -e AGGREGATION_CHECKPOINT_URI -e AGGREGATION_OUTPUT_PATH -e AGGREGATION_PREFIX -e TOP_ROUTES_OUTPUT_PATH -e TOP_ROUTES_LIMIT etl-project-3-app python3 scripts/local_pipeline_runner.py --endpoint-url http://etl-project-3-localstack:4566 --output-path /workspace/output/aggregations
 
 docker-all: docker-setup-local docker-producer docker-runner
 
