@@ -88,7 +88,7 @@ Here's the JSON I use as the secret value:
 
 ### About the MWAA Execution Role
 
-When you create your MWAA environment in AWS, **AWS automatically creates an execution IAM role** for you. This role has basic permissions for MWAA to function, but you need to **add additional permissions** for our pipeline to access Secrets Manager, S3, and Redshift.
+When you create your MWAA environment in AWS, **AWS automatically creates an execution IAM role** for you. This role has basic permissions for MWAA to function, but you need to **add additional permissions** for the pipeline to access Secrets Manager, S3, and Redshift.
 
 ### Identify Your MWAA Execution Role
 
