@@ -6,6 +6,7 @@ from scripts.glue_trip_aggregator import (
     aggregate_completed_trips,
     build_checkpoint_state,
     collect_affected_partition_prefixes,
+    get_relevant_hour_prefixes,
     resolve_runtime_option,
     select_new_stage_objects,
     to_int_safe,
@@ -158,8 +159,11 @@ def test_collect_affected_partition_prefixes_and_checkpoint_state():
             "LastModified": datetime(2024, 5, 25, 15, 1, tzinfo=timezone.utc),
         },
     ]
+    # hour=14 ends at 15:00 → age = 30 min ≤ 60 → included
+    # hour=15 ends at 16:00 → age = -30 min ≤ 60 → included (still open)
+    run_time = datetime(2024, 5, 25, 15, 30)
 
-    prefixes = collect_affected_partition_prefixes(object_rows)
+    prefixes = collect_affected_partition_prefixes(object_rows, now=run_time)
     checkpoint_state = build_checkpoint_state(object_rows)
 
     assert prefixes == [
@@ -168,6 +172,87 @@ def test_collect_affected_partition_prefixes_and_checkpoint_state():
     ]
     assert checkpoint_state["last_key"].endswith("file-c.jsonl")
     assert checkpoint_state["processed_object_count"] == 2
+
+
+def test_collect_affected_partition_prefixes_drops_beyond_lateness_cap():
+    object_rows = [
+        {
+            # hour=12 ends at 13:00 → age = 150 min > 60 → DROPPED
+            "Key": "staging/completed_trips/year=2024/month=05/day=25/hour=12/file-a.jsonl",
+            "LastModified": datetime(2024, 5, 25, 15, 30, tzinfo=timezone.utc),
+        },
+        {
+            # hour=14 ends at 15:00 → age = 30 min ≤ 60 → included
+            "Key": "staging/completed_trips/year=2024/month=05/day=25/hour=14/file-b.jsonl",
+            "LastModified": datetime(2024, 5, 25, 15, 10, tzinfo=timezone.utc),
+        },
+    ]
+    run_time = datetime(2024, 5, 25, 15, 30)
+
+    prefixes = collect_affected_partition_prefixes(object_rows, now=run_time)
+
+    assert prefixes == [
+        "staging/completed_trips/year=2024/month=05/day=25/hour=14",
+    ]
+
+
+def test_collect_affected_partition_prefixes_no_cap_includes_all():
+    object_rows = [
+        {
+            # 2 days old — would normally be dropped
+            "Key": "staging/completed_trips/year=2025/month=03/day=14/hour=00/file-old.jsonl",
+            "LastModified": datetime(2025, 3, 14, 1, 0, tzinfo=timezone.utc),
+        },
+        {
+            # 30 min old — would pass even with cap
+            "Key": "staging/completed_trips/year=2025/month=03/day=16/hour=13/file-new.jsonl",
+            "LastModified": datetime(2025, 3, 16, 13, 30, tzinfo=timezone.utc),
+        },
+    ]
+    # lateness_cap_minutes=None → first run, no checkpoint, all partitions included
+    prefixes = collect_affected_partition_prefixes(object_rows, lateness_cap_minutes=None)
+
+    assert len(prefixes) == 2
+    assert "staging/completed_trips/year=2025/month=03/day=14/hour=00" in prefixes
+    assert "staging/completed_trips/year=2025/month=03/day=16/hour=13" in prefixes
+
+
+def test_collect_affected_partition_prefixes_drops_all_when_all_expired():
+    object_rows = [
+        {
+            "Key": "staging/completed_trips/year=2024/month=05/day=25/hour=10/file-x.jsonl",
+            "LastModified": datetime(2024, 5, 25, 15, 30, tzinfo=timezone.utc),
+        },
+    ]
+    # hour=10 ends at 11:00 → age = 270 min → DROPPED
+    run_time = datetime(2024, 5, 25, 15, 30)
+
+    prefixes = collect_affected_partition_prefixes(object_rows, now=run_time)
+
+    assert prefixes == []
+
+
+def test_get_relevant_hour_prefixes_mid_hour():
+    # Glue runs at 15:30 — floor to 15:00, lookback 2 closed hours → hour=13, hour=14
+    # hour=15 is the currently-open hour and is excluded
+    run_time = datetime(2025, 3, 16, 15, 30)
+    prefixes = get_relevant_hour_prefixes("staging/completed_trips", lateness_cap_minutes=60, now=run_time)
+
+    assert prefixes == [
+        "staging/completed_trips/year=2025/month=03/day=16/hour=13",
+        "staging/completed_trips/year=2025/month=03/day=16/hour=14",
+    ]
+
+
+def test_get_relevant_hour_prefixes_crosses_midnight():
+    # Glue runs at 01:00 — two closed hours cross into the previous day; hour=01 excluded
+    run_time = datetime(2025, 3, 16, 1, 0)
+    prefixes = get_relevant_hour_prefixes("staging/completed_trips", lateness_cap_minutes=60, now=run_time)
+
+    assert prefixes == [
+        "staging/completed_trips/year=2025/month=03/day=15/hour=23",
+        "staging/completed_trips/year=2025/month=03/day=16/hour=00",
+    ]
 
 
 def test_resolve_runtime_option_supports_underscore_and_dash():
