@@ -1,4 +1,4 @@
-"""Unit tests for ETL-Project-2."""
+"""Unit tests for the Spotify streams real-time pipeline."""
 
 import pytest
 from src.utils.event_parser import validate_event, parse_kinesis_message

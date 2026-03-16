@@ -1,0 +1,53 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: etl-project-3-app
+    working_dir: /workspace
+    environment:
+      - AWS_REGION=ap-south-2
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://etl-project-3-localstack:4566
+      - KINESIS_ENDPOINT_URL=http://etl-project-3-localstack:4566
+      - DYNAMODB_ENDPOINT_URL=http://etl-project-3-localstack:4566
+      - GLUE_ENDPOINT_URL=http://etl-project-3-localstack:4566
+      - PYTHONPATH=/workspace
+    volumes:
+      - ./:/workspace
+    depends_on:
+      localstack:
+        condition: service_healthy
+    networks:
+      - etl-network
+    command: tail -f /dev/null
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: etl-project-3-localstack
+    environment:
+      - SERVICES=kinesis,dynamodb,s3,glue
+      - DEBUG=0
+      - AWS_DEFAULT_REGION=ap-south-2
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    ports:
+      - "4566:4566"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - etl-network
+
+volumes:
+  localstack-data:
+
+networks:
+  etl-network:
+    driver: bridge
