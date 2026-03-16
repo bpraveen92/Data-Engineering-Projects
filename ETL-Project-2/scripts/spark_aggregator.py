@@ -95,7 +95,7 @@ def create_spark_session(use_localstack=False):
         )
 
         # The Kinesis connector is a JVM library. While testing locally in docker container env vars are not
-        # forwarded into the JVM credential chain, so we need to inject them explicitly
+        # forwarded into the JVM credential chain, so I inject them explicitly
         # as system properties so SystemPropertiesCredentialsProvider picks them up.
         aws_access_key = os.getenv('AWS_ACCESS_KEY_ID', 'test')
         aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY', 'test')

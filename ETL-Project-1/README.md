@@ -273,7 +273,7 @@ Before you get started, you'll need to set up a few things in AWS (one-time setu
 - **Redshift Serverless workgroup** with default configuration and minimal capacity:
   - I configured this with **8 RPUs** (Redshift Processing Units) to keep costs minimal for development
   - Database name: `dev` (or your preference)
-  - **IAM Role**: Redshift automatically creates an execution role during cluster setup with basic permissions—this is fine for our use case
+  - **IAM Role**: Redshift automatically creates an execution role during cluster setup with basic permissions—this is fine for this use case
 
 - **AWS Secrets Manager secret** called `project1-config` (see [MWAA_SECRETS_MANAGER_SETUP.md](docs/MWAA_SECRETS_MANAGER_SETUP.md))
 

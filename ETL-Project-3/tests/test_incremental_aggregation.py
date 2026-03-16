@@ -7,7 +7,7 @@ These tests validate that:
 2. A late-arriving file that lands in an hour prefix outside the listing window
    is never listed and therefore never reaches aggregation.
 
-We use moto to mock S3 so no real AWS calls are made.
+moto is used to mock S3 — no real AWS calls are made.
 """
 import json
 import os
