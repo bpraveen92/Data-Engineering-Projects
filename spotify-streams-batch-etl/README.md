@@ -1,4 +1,4 @@
-# S3 CSV to Redshift Serverless ETL Pipeline
+# Spotify Streams: Batch ETL Pipeline (S3 to Redshift Serverless)
 
 A simple production-style data orchestration pipeline that I built to automate the ingestion, transformation, and loading of CSV data from S3 into Redshift Serverless, with built-in data quality checks and BI-ready gold layer aggregations.
 
@@ -273,7 +273,7 @@ Before you get started, you'll need to set up a few things in AWS (one-time setu
 - **Redshift Serverless workgroup** with default configuration and minimal capacity:
   - I configured this with **8 RPUs** (Redshift Processing Units) to keep costs minimal for development
   - Database name: `dev` (or your preference)
-  - **IAM Role**: Redshift automatically creates an execution role during cluster setup with basic permissions—this is fine for our use case
+  - **IAM Role**: Redshift automatically creates an execution role during cluster setup with basic permissions—this is fine for this use case
 
 - **AWS Secrets Manager secret** called `project1-config` (see [MWAA_SECRETS_MANAGER_SETUP.md](docs/MWAA_SECRETS_MANAGER_SETUP.md))
 
