@@ -9,17 +9,12 @@ import boto3
 from botocore.exceptions import ClientError
 
 log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
 
 
 def ensure_stream_active(client, stream_name):
-    """
-    Create stream if needed and wait until ACTIVE.
-
-    Args:
-        client: boto3 Kinesis client
-        stream_name: Stream to create/check
-    """
+    """Create stream if needed and block until ACTIVE."""
     try:
         client.describe_stream_summary(StreamName=stream_name)
         log.info("Kinesis stream already exists: %s", stream_name)
@@ -28,21 +23,17 @@ def ensure_stream_active(client, stream_name):
         client.create_stream(StreamName=stream_name, ShardCount=1)
 
     while True:
-        status = client.describe_stream_summary(StreamName=stream_name)["StreamDescriptionSummary"]["StreamStatus"]
+        status = client.describe_stream_summary(StreamName=stream_name)[
+            "StreamDescriptionSummary"]["StreamStatus"]
         if status == "ACTIVE":
             break
         time.sleep(2)
-        log.info("Waiting for stream %s to become ACTIVE (current=%s)", stream_name, status)
+        log.info("Waiting for stream %s to become ACTIVE (current=%s)",
+                 stream_name, status)
 
 
 def ensure_table_exists(dynamo_client, table_name):
-    """
-    Ensure DynamoDB lifecycle table exists.
-
-    Args:
-        dynamo_client: boto3 DynamoDB client
-        table_name: Table name
-    """
+    """Create the trip_lifecycle DynamoDB table if it doesn't already exist."""
     try:
         dynamo_client.describe_table(TableName=table_name)
         log.info("DynamoDB table already exists: %s", table_name)
@@ -53,7 +44,8 @@ def ensure_table_exists(dynamo_client, table_name):
     log.info("Creating DynamoDB table: %s", table_name)
     dynamo_client.create_table(
         TableName=table_name,
-        AttributeDefinitions=[{"AttributeName": "trip_id", "AttributeType": "S"}],
+        AttributeDefinitions=[
+            {"AttributeName": "trip_id", "AttributeType": "S"}],
         KeySchema=[{"AttributeName": "trip_id", "KeyType": "HASH"}],
         BillingMode="PAY_PER_REQUEST",
     )
@@ -63,14 +55,7 @@ def ensure_table_exists(dynamo_client, table_name):
 
 
 def ensure_bucket_exists(s3_client, bucket_name, region):
-    """
-    Ensure S3 bucket exists in local or AWS endpoint.
-
-    Args:
-        s3_client: boto3 S3 client
-        bucket_name: Bucket name
-        region: AWS region
-    """
+    """Create the S3 bucket if it doesn't already exist."""
     try:
         s3_client.head_bucket(Bucket=bucket_name)
         log.info("S3 bucket already exists: %s", bucket_name)
@@ -89,13 +74,7 @@ def ensure_bucket_exists(s3_client, bucket_name, region):
 
 
 def ensure_glue_database_exists(glue_client, database_name):
-    """
-    Ensure Glue database exists when Glue API is available.
-
-    Args:
-        glue_client: boto3 Glue client
-        database_name: Glue database name
-    """
+    """Create the Glue database if it doesn't already exist. No-ops silently if Glue is unavailable (LocalStack community)."""
     try:
         glue_client.get_database(Name=database_name)
         log.info("Glue database already exists: %s", database_name)
@@ -110,19 +89,28 @@ def ensure_glue_database_exists(glue_client, database_name):
         glue_client.create_database(DatabaseInput={"Name": database_name})
         log.info("Glue database created: %s", database_name)
     except Exception as error:
-        log.warning("Skipping Glue database creation (unsupported in current local setup): %s", error)
+        log.warning(
+            "Skipping Glue database creation (unsupported in current local setup): %s", error)
 
 
 def parse_cli_args():
     """Parse setup script CLI arguments."""
-    parser = argparse.ArgumentParser(description="Create LocalStack resources for ETL-Project-3")
-    parser.add_argument("--region", default=os.getenv("AWS_REGION", "ap-south-2"))
-    parser.add_argument("--endpoint-url", default=os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566"))
-    parser.add_argument("--start-stream", default=os.getenv("TRIP_START_STREAM", "trip-start-stream"))
-    parser.add_argument("--end-stream", default=os.getenv("TRIP_END_STREAM", "trip-end-stream"))
-    parser.add_argument("--table-name", default=os.getenv("TRIP_LIFECYCLE_TABLE", "trip_lifecycle"))
-    parser.add_argument("--output-bucket", default=os.getenv("AGGREGATION_BUCKET", "etl-project-3-analytics-local"))
-    parser.add_argument("--glue-database", default=os.getenv("GLUE_DATABASE", "etl_project_3_analytics"))
+    parser = argparse.ArgumentParser(
+        description="Create LocalStack resources for ETL-Project-3")
+    parser.add_argument(
+        "--region", default=os.getenv("AWS_REGION", "ap-south-2"))
+    parser.add_argument(
+        "--endpoint-url", default=os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566"))
+    parser.add_argument(
+        "--start-stream", default=os.getenv("TRIP_START_STREAM", "trip-start-stream"))
+    parser.add_argument(
+        "--end-stream", default=os.getenv("TRIP_END_STREAM", "trip-end-stream"))
+    parser.add_argument(
+        "--table-name", default=os.getenv("TRIP_LIFECYCLE_TABLE", "trip_lifecycle"))
+    parser.add_argument("--output-bucket", default=os.getenv(
+        "AGGREGATION_BUCKET", "etl-project-3-analytics-local"))
+    parser.add_argument(
+        "--glue-database", default=os.getenv("GLUE_DATABASE", "etl_project_3_analytics"))
     return parser.parse_args()
 
 
@@ -151,7 +139,7 @@ def main():
     log.info("Local setup complete.")
     log.info("Streams: %s, %s", args.start_stream, args.end_stream)
     log.info("Table: %s", args.table_name)
-    log.info("Output bucket: %s", args.output_bucket)
+    log.info("Bucket: %s", args.output_bucket)
 
 
 if __name__ == "__main__":
