@@ -1,215 +1,193 @@
 # ETL-Project-3: Trip Lifecycle Streaming Pipeline
 
-I built this project to model a pretty common real-world pattern: two independent event streams (`trip_start` and `trip_end`) that eventually need to become one reliable analytical dataset.
-After about 8 years building data pipelines, this is the exact shape I prefer when I need clean state transitions plus analytics-ready output.
+I built this to model a real-world problem I kept running into: two independent event streams that represent the start and end of the same thing — a taxi trip — arriving at different times, out of order, and needing to be reliably joined before any analytics can happen.
 
-At a high level, this is what I’m doing:
+The pipeline ingests `trip_start` and `trip_end` events from separate Kinesis streams, joins them through DynamoDB, stages completed trips in S3, and runs hourly Glue aggregations to produce partitioned Parquet output queryable through Athena.
 
-1. I ingest `trip_start` events into DynamoDB.
-2. I ingest `trip_end` events and update the same trip records.
-3. I write compact completed-trip events from `trip_end` into an append-only S3 staging area.
-4. I run Glue on a schedule and aggregate only the newly affected staged hours.
-5. I expose the curated parquet output through Glue Crawler + Athena.
+---
 
-## Pipeline Architecture
+## Architecture
 
-```text
-trip_start.csv ------------------------> Kinesis: trip-start-stream -----> Lambda trip_start -----> DynamoDB trip_lifecycle
-                                                                                 (insert/upsert)
+```
+trip_start.csv ──► Kinesis: trip-start-stream ──► Lambda (trip_start) ──► DynamoDB: trip_lifecycle
+                                                                               (upsert by trip_id)
 
-trip_end.csv --------------------------> Kinesis: trip-end-stream -------> Lambda trip_end -------> DynamoDB trip_lifecycle
-                                                                                 (update/upsert)           |
-                                                                                                           +--> S3 staging/completed_trips
-                                                                                                                     |
-                                                                                                      EventBridge schedule / manual Glue run
-                                                                                                                     |
-                                                                                                                     v
-                                                                                                    Glue incremental PySpark aggregation
-                                                                                                                     |
-                                                                                                                     v
-                                                                                                           S3 parquet (partitioned)
-                                                                                                                     |
-                                                                                                               Glue Crawler
-                                                                                                                     |
-                                                                                                                    Athena
+trip_end.csv ───► Kinesis: trip-end-stream ────► Lambda (trip_end) ────► DynamoDB: trip_lifecycle
+                                                                               (update, mark completed)
+                                                                                        │
+                                                                             S3: staging/completed_trips/
+                                                                             year=.../month=.../day=.../hour=.../
+                                                                                        │
+                                                                         EventBridge hourly schedule
+                                                                                        │
+                                                                         Glue: glue_trip_aggregator.py
+                                                                         (incremental, checkpoint-aware)
+                                                                                        │
+                                                                         S3: aggregations/hourly_zone_metrics/
+                                                                                        │
+                                                                         Glue Crawler ──► Athena
 ```
 
-## Trigger Model I Recommend
+---
 
-For AWS deployment, I recommend native Kinesis -> Lambda event source mappings instead of EventBridge schedules.
+## How Data Flows — A Real Example
 
-- Lambda is invoked only when records are available in the stream.
-- AWS manages shard polling, checkpoints, and retry behavior for us.
-- When the stream is quiet, there is nothing for us to poll manually, so the function is effectively idle.
+Here's a single trip moving through every stage.
 
-I do not recommend scheduled EventBridge polling for this project because it adds extra lag, manual checkpoint logic, and more moving parts without giving us a real benefit here.
+**Input CSVs:**
+```
+# trip_start.csv
+trip_id,     pickup_location_id, dropoff_location_id, pickup_datetime,       estimated_fare_amount
+c66ce556bc,  93,                 132,                 2024-05-25 13:19:00,   34.19
 
-## Core Behavior I’m Enforcing
-
-- In `trip_start` Lambda, I do deterministic updates keyed by `trip_id`, so duplicate start events stay idempotent.
-- In `trip_end` Lambda, I update existing trips, but if start is missing I upsert and mark `data_quality=missing_start`.
-- In `trip_end` Lambda, I also emit a compact analytics record to `staging/completed_trips/...` only when the trip is valid and complete.
-- In Glue, I aggregate only completed and valid staged records (`trip_status=completed` and not `missing_start`).
-- I aggregate at hourly grain using `event_hour = date_trunc('hour', dropoff_datetime)`.
-- I can also compute top routes per hour using a Spark window ranking (`row_number` over each hour).
-- I keep a checkpoint in S3 so every Glue run only looks at newly arrived staged files, then rewrites only the affected hourly partitions.
-
-## Code Flow Walkthrough
-
-When I run this project, this is the exact code path:
-
-1. `scripts/setup_local.py`
-- Entry: `main()`
-- Core methods: `ensure_stream_active`, `ensure_table_exists`, `ensure_bucket_exists`, `ensure_glue_database_exists`
-- Outcome: local infra prerequisites are ready.
-
-2. `scripts/kinesis_trip_producer.py`
-- Entry: `main()`
-- Core methods: `read_rows`, `publish_interleaved`, `publish_batch`
-- Outcome: trip start and trip end events are pushed to two streams.
-
-3. `scripts/local_pipeline_runner.py`
-- Entry: `main()`
-- Core methods: `fetch_stream_records`, `run_in_batches`, `summarize_batch_output`
-- Outcome: stream records are pulled and sent to Lambda handlers in batches.
-
-4. `scripts/lambda_trip_start.py`
-- Entry: `handler(event, context)`
-- Core methods: `decode_kinesis_record`, `validate_start_event`, `write_trip_start`
-- Outcome: trip start state is written into DynamoDB.
-
-5. `scripts/lambda_trip_end.py`
-- Entry: `handler(event, context)`
-- Core methods: `decode_kinesis_record`, `validate_end_event`, `write_trip_end`, `build_completed_trip_event`, `write_staging_records`
-- Outcome: trip rows are completed in DynamoDB and valid completed trips are appended to staged S3 files.
-
-6. `scripts/glue_trip_aggregator.py`
-- Entry: `main()`
-- Core methods: `run_local_staging_aggregation` or `run_glue_staging_aggregation`, then `transform_completed_trips`, `transform_top_routes_per_hour`, `write_output`
-- Outcome: only newly affected hourly parquet partitions are recalculated and written to output storage.
-
-## Why I Use Two Staging Read Paths
-
-I intentionally keep two staged-file read strategies in `glue_trip_aggregator.py`:
-
-1. `local_staging` (boto3 S3 reads + Spark DataFrame)
-- I use this for local Docker testing.
-- It works cleanly with LocalStack and does not require `s3a` or Glue runtime-specific extras.
-- It keeps local debugging simple because I can inspect staged JSONL rows before Spark transforms.
-
-2. `glue_staging` (Glue Spark reads from S3 prefixes)
-- I use this in AWS Glue runtime for production-style execution.
-- Glue can read the staged S3 prefixes directly and then overwrite only the affected output partitions.
-- It avoids rescanning the operational DynamoDB table every time the job runs.
-
-The reason for two paths is practical: local reliability and faster iteration on one side, AWS-native S3 reads on the other side, while reusing the same Spark transformation logic after read.
-
-## Project Structure
-
-```text
-ETL-Project-3/
-├── Dockerfile
-├── docker-compose.yml
-├── .dockerignore
-├── data/
-│   ├── trip_start.csv
-│   └── trip_end.csv
-├── docs/
-│   ├── EXECUTION.md
-│   ├── LOCAL_DEVELOPMENT_SETUP.md
-│   ├── AWS_DEPLOYMENT.md
-│   └── TROUBLESHOOTING.md
-├── scripts/
-│   ├── lambda_trip_start.py
-│   ├── lambda_trip_end.py
-│   ├── glue_trip_aggregator.py
-│   ├── kinesis_trip_producer.py
-│   ├── setup_local.py
-│   ├── local_pipeline_runner.py
-│   └── iam/
-├── tests/
-│   ├── test_lambda_trip_start.py
-│   ├── test_lambda_trip_end.py
-│   └── test_glue_trip_aggregator.py
-├── artifacts/
-│   ├── lambda/
-│   └── sql/athena_queries.sql
-├── Makefile
-├── requirements.txt
-└── .env.example
+# trip_end.csv
+trip_id,     dropoff_datetime,      fare_amount, tip_amount, trip_distance
+c66ce556bc,  2024-05-25 14:05:00,   40.10,       0.0,        0.1
 ```
 
-## Quick Start (Local Simulation)
+**After `lambda_trip_start` writes to DynamoDB** (`trip_status=started`, start-side fields only):
+```json
+{
+  "trip_id": "c66ce556bc",
+  "start_pickup_location_id": 93,
+  "start_dropoff_location_id": 132,
+  "start_pickup_datetime": "2024-05-25 13:19:00",
+  "trip_status": "started"
+}
+```
 
-I usually test this inside Docker first before I touch AWS.
+**After `lambda_trip_end` updates the same row** (merges end-side fields, marks completed):
+```json
+{
+  "trip_id": "c66ce556bc",
+  "start_pickup_location_id": 93,
+  "start_dropoff_location_id": 132,
+  "end_dropoff_datetime": "2024-05-25 14:05:00",
+  "end_fare_amount": 40.10,
+  "end_tip_amount": 0.0,
+  "end_trip_distance": 0.1,
+  "trip_status": "completed",
+  "data_quality": "ok"
+}
+```
 
-1. Start the local stack:
+**S3 staging file written by `lambda_trip_end`** (compact — only what Glue needs):
+```
+s3://<bucket>/staging/completed_trips/year=2024/month=05/day=25/hour=14/completed_trip_batch_20240525T140500Z_<uuid>.jsonl
+```
+```json
+{
+  "trip_id": "c66ce556bc",
+  "pickup_location_id": 93,
+  "dropoff_location_id": 132,
+  "dropoff_datetime": "2024-05-25 14:05:00",
+  "fare_amount": 40.10,
+  "tip_amount": 0.0,
+  "trip_distance": 0.1,
+  "trip_status": "completed",
+  "data_quality": "ok"
+}
+```
+
+**Glue output** (hourly Parquet, aggregated across all trips in that hour+route):
+```
+s3://<bucket>/aggregations/hourly_zone_metrics/year=2024/month=05/day=25/hour=14/part-0.parquet
+```
+```
+event_hour           pickup_location_id  dropoff_location_id  trip_count  fare_sum  tip_sum  distance_sum
+2024-05-25 14:00:00  93                  132                  17          480.13    12.50    31.4
+```
+
+---
+
+## Key Decisions I Made (and Changed)
+
+**Why DynamoDB for state, not a database join in Spark?**
+The two streams arrive independently and out of order. There's no guarantee `trip_start` comes before `trip_end`. I needed a fast, key-value store to hold partial state — DynamoDB with `trip_id` as the partition key is the natural fit. Each Lambda just reads the existing item and upserts.
+
+**Why not have Glue scan DynamoDB directly?**
+My first version did this. The problem is that every Glue run would do a full DynamoDB table scan — expensive, slow, and it grows unboundedly. I switched to having `lambda_trip_end` write compact completed-trip events directly to S3 staging partitioned by `dropoff_datetime` hour. Now Glue only reads the new files it hasn't seen yet.
+
+**Why stage by `dropoff_datetime` hour, not Lambda invocation time?**
+The S3 partition key is derived from the trip's `dropoff_datetime`, not from when Lambda ran. A trip with `dropoff_datetime=13:45` that Lambda processes at 14:25 lands in `staging/.../hour=13/`, not `hour=14/`. This keeps the staging partition aligned with the output partition — Glue groups by `date_trunc('hour', dropoff_datetime)`, so a late-arriving trip always folds into the correct hour aggregate regardless of when Lambda wrote its file.
+
+**Why a checkpoint instead of reprocessing everything?**
+I keep a checkpoint JSON in S3 that tracks the `last_modified` timestamp and S3 key of the last staged file each Glue run processed. On the next run I skip everything at or before that marker. But there's a scalability problem with naively listing the full `staging/completed_trips/` prefix — after months of data that becomes thousands of files to page through, and almost all of them are behind the checkpoint. So on incremental runs I narrow the S3 listing to only the 2 most recently closed hour prefixes: `floor(now) - 2h` and `floor(now) - 1h`. The currently-open hour is excluded — it has only a few minutes of data and will be fully captured on the next run. At 15:05 that's just `hour=13` and `hour=14`. The checkpoint filter then runs on that small set. Combined with `spark.sql.sources.partitionOverwriteMode=dynamic`, only the affected output partitions get rewritten.
+
+**How I handle late arrivals**
+Lateness is enforced by the listing scope, not by a per-file age check. On incremental runs, Glue only lists the 2 most recently closed hour prefixes. Any new file that lands in those 2 prefixes gets processed — it doesn't matter whether the hour closed 5 minutes or 65 minutes ago. If a late-arriving event's staging file falls outside those 2 prefixes, it simply isn't listed and never reaches aggregation.
+
+Example at a 15:05 run: Glue lists `hour=13` and `hour=14`. A trip with `dropoff_datetime=13:47` that Lambda processed at 14:55 wrote its file to `staging/.../hour=13/` — it's in the window, it gets counted. The same trip arriving at 16:15 misses the 16:05 run entirely because `hour=13` is no longer in the listing window at that point.
+
+**Why not trigger Glue from Lambda?**
+I tried this. The problem is Lambda gets invoked per batch of Kinesis records — potentially dozens of times a minute during high traffic. Glue startup alone takes 1-2 minutes, so triggering it from Lambda creates a queue of competing Glue runs fighting over the same checkpoint. I moved Glue to an hourly EventBridge schedule instead. Lambda's only job now is: write to DynamoDB, write to S3 staging, done.
+
+**Why two staging read paths in Glue?**
+`local_staging` uses boto3 to read staged files from LocalStack S3 — simple, no `s3a` config needed, easy to debug in Docker. `glue_staging` uses Glue's native Spark S3 reader in AWS. Both paths share the same `transform_completed_trips` Spark logic after the read.
+
+---
+
+## Missing Start Handling
+
+If `trip_end` arrives before `trip_start` (which happens regularly), I still write the trip to DynamoDB — I just mark it `data_quality=missing_start`. The staging write to S3 is skipped in this case, so these trips never reach Glue aggregation. They stay in DynamoDB as a quality signal.
+
+---
+
+## Quick Start (Local)
 
 ```bash
-make up
+make up               # start Docker stack (LocalStack + app container)
+make docker-all       # setup → produce → process → aggregate (one command)
+make down             # stop and clean
 ```
 
-2. Run the full containerized flow:
-
-```bash
-make docker-all
-```
-
-That runs setup, producer, Lambda simulation, and aggregation from the app container.
-
-3. Check output files:
-
+Check output:
 ```bash
 find output/aggregations -type f | sort
 ```
 
-Optional: if I want top routes per hour as a second analytical output, I set env vars before running:
-
+Optional top-routes analytical output:
 ```bash
 export TOP_ROUTES_OUTPUT_PATH=./output/top_routes_hourly
 export TOP_ROUTES_LIMIT=5
 make docker-runner
 ```
 
-4. Stop the stack when done:
+---
 
-```bash
-make down
+## Project Structure
+
+```
+ETL-Project-3/
+├── data/
+│   ├── trip_start.csv              # 4999 sample trip start events
+│   └── trip_end.csv                # 4999 sample trip end events
+├── scripts/
+│   ├── setup_local.py              # creates LocalStack resources
+│   ├── kinesis_trip_producer.py    # publishes CSVs to Kinesis streams
+│   ├── local_pipeline_runner.py    # simulates Lambda + Glue locally
+│   ├── lambda_trip_start.py        # Kinesis → DynamoDB (start side)
+│   ├── lambda_trip_end.py          # Kinesis → DynamoDB + S3 staging (end side)
+│   ├── glue_trip_aggregator.py     # incremental PySpark aggregator
+│   └── iam/                        # trust policy JSON files for IAM setup
+├── tests/
+│   ├── test_lambda_trip_start.py
+│   ├── test_lambda_trip_end.py
+│   └── test_glue_trip_aggregator.py
+├── artifacts/
+│   └── sql/athena_queries.sql      # ready-to-run Athena queries
+├── docs/
+│   ├── EXECUTION.md                # step-by-step runbook (local + AWS)
+│   ├── LOCAL_DEVELOPMENT_SETUP.md  # Docker setup, endpoints, debug tips
+│   ├── AWS_DEPLOYMENT.md           # manual Console setup checklist
+│   └── TROUBLESHOOTING.md          # common issues and fixes
+├── Makefile
+├── docker-compose.yml
+├── requirements.txt
+└── .env.example
 ```
 
-If I need to run directly from host Python instead of Docker, I do this:
-
-```bash
-cp .env.example .env
-make install
-make local-all
-```
-
-## AWS Deployment Style
-
-For this project, I’m intentionally keeping AWS setup manual via Console (not full automation).
-I do not create Lambda resources through code; I create them manually in the AWS UI.
-I also keep Lambda deployment lightweight by using the code editor with the `.py` source from `scripts/lambda_trip_start.py` and `scripts/lambda_trip_end.py` (no zip packaging step).
-
-## Daily Runtime Expectations
-
-On a normal day in AWS, this is how I expect the pipeline to behave:
-
-1. New trip records land in Kinesis.
-2. AWS invokes the matching Lambda through the Kinesis event source mapping.
-3. Lambda writes or updates trip state in DynamoDB.
-4. `trip_end` Lambda appends compact completed-trip rows into staged S3 files.
-5. Glue runs on a schedule, reads only newly discovered staged files, and rewrites the affected hourly partitions.
-6. Crawlers refresh Athena-facing metadata.
-
-The main limitation I keep in mind is that Kinesis-triggered Lambda scales primarily with shard count, so one small shard can become the bottleneck. On the analytics side, this design is much cheaper than full-table DynamoDB recomputes, but it still depends on partition overwrite patterns and checkpoint correctness, so I monitor the staging prefix and checkpoint object closely.
-
-```bash
-cp .env.example .env
-# update .env with your real region and names
-```
-
-Then I follow the checklist in [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md).
+---
 
 ## Testing
 
@@ -217,11 +195,12 @@ Then I follow the checklist in [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md
 make test
 ```
 
-Tests cover Lambda validation/update semantics and the aggregation logic.
+21 tests covering Lambda validation, DynamoDB update semantics, deduplication, late arrival filtering, checkpoint logic, Glue aggregation output, and end-to-end incremental run validation.
 
-## Docs
+`tests/test_incremental_aggregation.py` uses [moto](https://github.com/getmoto/moto) to mock S3 in-memory — no LocalStack or real AWS needed. The `@mock_aws` decorator (moto v5+) intercepts all boto3 S3 calls within the test and tears down the mock when the test exits. These two tests verify the core late arrival contract: a file landing in an hour prefix within the 2-hour listing window is picked up and re-aggregated; a file in an older prefix is never listed.
 
-- [`docs/EXECUTION.md`](docs/EXECUTION.md): my runbook for local + AWS execution.
-- [`docs/LOCAL_DEVELOPMENT_SETUP.md`](docs/LOCAL_DEVELOPMENT_SETUP.md): local endpoints and setup notes.
-- [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md): full manual AWS Console prerequisites and setup.
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md): issues I expect and how I handle them.
+---
+
+## AWS Deployment
+
+I do AWS setup manually in the Console for this project — no IaC. The full checklist is in [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md).
