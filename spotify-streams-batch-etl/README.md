@@ -1,4 +1,4 @@
-# S3 CSV to Redshift Serverless ETL Pipeline
+# Spotify Streams: Batch ETL Pipeline (S3 to Redshift Serverless)
 
 A simple production-style data orchestration pipeline that I built to automate the ingestion, transformation, and loading of CSV data from S3 into Redshift Serverless, with built-in data quality checks and BI-ready gold layer aggregations.
 

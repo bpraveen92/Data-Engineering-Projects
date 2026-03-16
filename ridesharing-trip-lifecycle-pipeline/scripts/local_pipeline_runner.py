@@ -156,7 +156,7 @@ def parse_cli_args():
     Sample output file path:
         --output-path ./output/aggregations
     """
-    parser = argparse.ArgumentParser(description="Run ETL-Project-3 local pipeline simulation")
+    parser = argparse.ArgumentParser(description="Run local ride-sharing trip lifecycle pipeline simulation")
     parser.add_argument("--region", default=os.getenv("AWS_REGION", "ap-south-2"))
     parser.add_argument("--endpoint-url", default=os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566"))
     parser.add_argument("--start-stream", default=os.getenv("TRIP_START_STREAM", "trip-start-stream"))

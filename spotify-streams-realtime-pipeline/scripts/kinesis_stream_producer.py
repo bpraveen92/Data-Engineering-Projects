@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Kinesis Stream Producer for ETL-Project-2
+Kinesis Stream Producer for the Spotify streams real-time pipeline
 
 Reads sample streaming data from CSV and generates synthetic events,
 sending them to AWS Kinesis (or LocalStack for local testing).

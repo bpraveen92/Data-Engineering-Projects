@@ -1,6 +1,6 @@
-# Real-Time Music Streaming Analytics Pipeline
+# Spotify Streams: Real-Time Analytics Pipeline (Kinesis and Spark)
 
-This is a continuation of ETL-Project-1 — same music streaming dataset, but now simulating what happens when the data arrives as a live stream rather than batch CSV files dropping into S3. The question I wanted to answer was: how does the architecture change when you need windowed aggregations in near real-time instead of on a schedule?
+This is a continuation of the Spotify Streams batch pipeline — same music streaming dataset, but now simulating what happens when the data arrives as a live stream rather than batch CSV files dropping into S3. The question I wanted to answer was: how does the architecture change when you need windowed aggregations in near real-time instead of on a schedule?
 
 The answer is a PySpark Structured Streaming pipeline that reads live music events from Kinesis, joins them with song/user metadata, and writes windowed aggregations to S3 as Parquet. Runs entirely in Docker locally using LocalStack and MinIO — no AWS account needed to test.
 
@@ -53,7 +53,7 @@ One script, two deployment modes — only `--trigger-mode` changes:
 ## Project Structure
 
 ```
-ETL-Project-2/
+spotify-streams-realtime-pipeline/
 ├── docker-compose.yml
 ├── Makefile
 ├── .env.example                     # copy to .env before first run

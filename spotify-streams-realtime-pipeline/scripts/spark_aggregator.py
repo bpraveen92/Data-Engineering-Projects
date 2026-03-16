@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Spark Aggregator for ETL-Project-2
+Spark Aggregator for the Spotify streams real-time pipeline
 
 Reads streaming events from Kinesis, enriches with dimension tables (songs, users),
 applies time-windowed aggregations with watermarking, and writes results to S3/MinIO.

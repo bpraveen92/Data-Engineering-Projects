@@ -1,4 +1,4 @@
-# ETL-Project-2 Python Dependencies
+# Spotify Streams Real-Time Pipeline Python Dependencies
 
 # PySpark & Data Processing
 pyspark==3.5.0

@@ -620,7 +620,7 @@ def run_glue_staging_aggregation(
 
 def parse_cli_args():
     """Parse CLI arguments for local and Glue execution modes."""
-    parser = argparse.ArgumentParser(description="ETL-Project-3 trip aggregation job")
+    parser = argparse.ArgumentParser(description="Ride-sharing trip aggregation job")
     parser.add_argument("--staging-bucket", default=os.getenv(
         "AGGREGATION_BUCKET", "etl-project-3-analytics-local"))
     parser.add_argument(
