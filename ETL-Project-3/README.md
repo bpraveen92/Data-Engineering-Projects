@@ -2,30 +2,31 @@
 
 I built this to model a real-world problem I kept running into: two independent event streams that represent the start and end of the same thing — a taxi trip — arriving at different times, out of order, and needing to be reliably joined before any analytics can happen.
 
-The pipeline ingests `trip_start` and `trip_end` events from separate Kinesis streams, joins them through DynamoDB, stages completed trips in S3, and runs hourly Glue aggregations to produce partitioned Parquet output queryable through Athena.
+**The dataset** is a synthetic NYC-style ride-sharing dataset — 4,999 trip start events and 4,999 trip end events spread across a single day (2024-05-25). `trip_start` events carry the pickup location, estimated dropoff zone, and estimated fare. `trip_end` events carry the actual dropoff time, distance, fare, and tip. The two sides share only a `trip_id`.
+
+**What I'm trying to simulate here -** is a ride-sharing platform where trip lifecycle events are produced by two separate backend services — a dispatch service fires `trip_start` when a driver accepts a ride, and a billing service fires `trip_end` when the ride closes out. In production these would be independent Kinesis producers with no coordination between them. Events arrive out of order: a `trip_end` can arrive before its `trip_start` (driver app lag, network retry), and the gap between the two events can range from minutes to hours. The pipeline has to handle all of this without dropping trips or double-counting them in the hourly aggregates.
+
+The pipeline ingests these events from separate Kinesis streams, joins them through DynamoDB, stages completed trips in S3, and runs hourly Glue aggregations to produce partitioned Parquet output queryable through Athena.
 
 ---
 
 ## Architecture
 
 ```
-trip_start.csv ──► Kinesis: trip-start-stream ──► Lambda (trip_start) ──► DynamoDB: trip_lifecycle
-                                                                               (upsert by trip_id)
-
-trip_end.csv ───► Kinesis: trip-end-stream ────► Lambda (trip_end) ────► DynamoDB: trip_lifecycle
-                                                                               (update, mark completed)
-                                                                                        │
-                                                                             S3: staging/completed_trips/
-                                                                             year=.../month=.../day=.../hour=.../
-                                                                                        │
-                                                                         EventBridge hourly schedule
-                                                                                        │
-                                                                         Glue: glue_trip_aggregator.py
-                                                                         (incremental, checkpoint-aware)
-                                                                                        │
-                                                                         S3: aggregations/hourly_zone_metrics/
-                                                                                        │
-                                                                         Glue Crawler ──► Athena
+trip_start.csv ──► trip-start-stream ──► Lambda (trip_start) ─┐
+                                                                ├──► DynamoDB: trip_lifecycle
+trip_end.csv ───► trip-end-stream ────► Lambda (trip_end) ────┘         │
+                                                               S3: staging/completed_trips/
+                                                               (partitioned by dropoff hour)
+                                                                         │
+                                                               EventBridge (hourly schedule)
+                                                                         │
+                                                               Glue: glue_trip_aggregator
+                                                               (incremental, checkpoint-aware)
+                                                                         │
+                                                               S3: aggregations/hourly_zone_metrics/
+                                                                         │
+                                                               Glue Crawler ──► Athena
 ```
 
 ---
@@ -152,6 +153,57 @@ export TOP_ROUTES_OUTPUT_PATH=./output/top_routes_hourly
 export TOP_ROUTES_LIMIT=5
 make docker-runner
 ```
+
+---
+
+## Docker Setup
+
+Two containers, one network.
+
+**`etl-project-3-localstack`** runs [LocalStack](https://github.com/localstack/localstack) — an AWS emulator that provides in-process Kinesis, DynamoDB, S3, and Glue endpoints at `http://localhost:4566`. `make up` starts this container first. The app container won't start until LocalStack passes its healthcheck (`curl http://localhost:4566/_localstack/health`), which is enforced by `depends_on: condition: service_healthy` in compose.
+
+**`etl-project-3-app`** is the Python/PySpark runtime. It's built from the project Dockerfile and mounts the entire project directory as `/workspace` — so code changes are visible inside the container immediately without rebuilding. All `make docker-*` targets run scripts inside this container via `docker exec`.
+
+**Dockerfile line by line:**
+
+```dockerfile
+FROM python:3.11-slim-bookworm
+```
+Slim Debian-based image. No GUI tools, no compilers, no package bloat — just enough OS to run Python.
+
+```dockerfile
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+```
+`PYTHONDONTWRITEBYTECODE` stops Python from writing `.pyc` files into the mounted workspace (those would show up as uncommitted clutter in the project directory). `PYTHONUNBUFFERED` flushes stdout/stderr immediately — without this, `log.info()` output would only appear after the script finishes, which makes debugging much harder inside Docker.
+
+```dockerfile
+RUN apt-get install -y --no-install-recommends \
+    curl \
+    openjdk-17-jre-headless
+```
+Two system dependencies: `curl` is used by the LocalStack healthcheck; `openjdk-17-jre-headless` is required by PySpark — Spark runs on the JVM and won't start without a Java runtime. The `--no-install-recommends` flag skips suggested packages (documentation, optional extensions) that would bloat the image.
+
+```dockerfile
+COPY requirements.txt /tmp/requirements.txt
+RUN python3 -m pip install --no-cache-dir --retries 10 --default-timeout 300 -r /tmp/requirements.txt
+```
+`requirements.txt` is copied before the rest of the project so Docker can cache the pip install layer. As long as `requirements.txt` doesn't change, rebuilds skip this slow step entirely. `--no-cache-dir` keeps the image lean by not storing the pip download cache inside the image. `--retries 10 --default-timeout 300` handles flaky network during build (PySpark is a large download and occasionally times out on slower connections).
+
+```dockerfile
+CMD ["tail", "-f", "/dev/null"]
+```
+Keeps the container running indefinitely without doing anything. All actual work is triggered externally via `docker exec` from Makefile targets — the container is just an execution environment that stays alive between commands.
+
+**Why the workspace volume mount instead of `COPY . /workspace`?**
+A `COPY` would bake the source files into the image at build time — every code change would require a full rebuild. The volume mount (`./:/workspace`) means the container always sees the current state of the files on disk. This is the standard pattern for development containers.
+
+**Credentials in docker-compose:**
+```yaml
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+```
+LocalStack doesn't validate credentials — it accepts any non-empty string. `test/test` is the conventional placeholder. The same dummy values are set in both containers so boto3 doesn't complain about missing credentials.
 
 ---
 
