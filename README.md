@@ -1,8 +1,10 @@
 # Data Engineering Projects
 
-I've spent the past 10 years working in analytics — most recently as a Senior Business Intelligence Engineer at Amazon. Throughout that time, whenever I had the opportunity to automate a manual process, build a data feed, or enrich an existing dataset, I took it. Data engineering work has been a consistent thread through my career, even when it wasn't my primary role.
+I've spent the past 10 years working in the analytics and data engineering space in the US — most recently as a Senior Business Intelligence Engineer at Amazon, and before that across a range of analytics roles since completing my Master's in Computer Science in 2016. Throughout that time, whenever I had the opportunity to automate a manual process, build a data feed, or enrich an existing dataset, I took it. Data engineering work has been a consistent thread through my career, even when it wasn't my primary role.
 
-This repository is where I document and share that work in a more structured way — real-world simulated pipelines built to production patterns, with both local Docker environments and full AWS deployment journeys included. The goal isn't just to show that something works, but to show the decisions behind it: why a particular architecture, what tradeoffs I considered, and how the pipeline behaves under realistic conditions like late-arriving data, out-of-order events, and incremental processing at scale.
+I recently relocated back to India and am currently on a career break. These projects are something I built over the past few weeks — partly to stay sharp, partly because I genuinely enjoyed having uninterrupted time to go deeper on problems I'd only been able to graze in day-to-day work.
+
+This repository is where I document and share that work — real-world simulated pipelines built to production patterns, with both local Docker environments and full AWS deployment journeys included. The goal isn't just to show that something works, but to show the decisions behind it: why a particular architecture, what tradeoffs I considered, and how the pipeline behaves under realistic conditions like late-arriving data, out-of-order events, and incremental processing at scale.
 
 Each project is self-contained with its own README, runbooks, tests, and deployment documentation.
 
