@@ -1,4 +1,4 @@
-# ETL-Project-3: Trip Lifecycle Streaming Pipeline
+# Ride-Sharing Trip Lifecycle Pipeline (Kinesis, Lambda, and Glue)
 
 I built this to model a real-world problem I kept running into: two independent event streams that represent the start and end of the same thing — a taxi trip — arriving at different times, out of order, and needing to be reliably joined before any analytics can happen.
 
@@ -210,7 +210,7 @@ LocalStack doesn't validate credentials — it accepts any non-empty string. `te
 ## Project Structure
 
 ```
-ETL-Project-3/
+ridesharing-trip-lifecycle-pipeline/
 ├── data/
 │   ├── trip_start.csv              # 4999 sample trip start events
 │   └── trip_end.csv                # 4999 sample trip end events

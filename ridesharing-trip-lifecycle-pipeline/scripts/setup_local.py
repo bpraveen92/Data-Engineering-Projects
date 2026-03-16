@@ -1,4 +1,4 @@
-"""Create local resources in LocalStack for ETL-Project-3."""
+"""Create local resources in LocalStack for the ride-sharing trip lifecycle pipeline."""
 
 import argparse
 import logging
@@ -96,7 +96,7 @@ def ensure_glue_database_exists(glue_client, database_name):
 def parse_cli_args():
     """Parse setup script CLI arguments."""
     parser = argparse.ArgumentParser(
-        description="Create LocalStack resources for ETL-Project-3")
+        description="Create LocalStack resources for the ride-sharing trip lifecycle pipeline")
     parser.add_argument(
         "--region", default=os.getenv("AWS_REGION", "ap-south-2"))
     parser.add_argument(
