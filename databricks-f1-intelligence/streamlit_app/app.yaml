@@ -1,19 +1,9 @@
-command: ["python", "-m", "streamlit", "run", "app.py", "--server.port", "8080"]
+command: ["streamlit", "run", "app.py", "--server.port", "8080", "--server.address", "0.0.0.0"]
 
 env:
   - name: CATALOG
     value: f1_intelligence
   - name: SCHEMA
-    value: f1_prod
-  - name: DATABRICKS_SERVER_HOSTNAME
-    valueFrom:
-      secretKeyRef:
-        key: DATABRICKS_SERVER_HOSTNAME
+    value: f1_dev
   - name: DATABRICKS_HTTP_PATH
-    valueFrom:
-      secretKeyRef:
-        key: DATABRICKS_HTTP_PATH
-  - name: DATABRICKS_TOKEN
-    valueFrom:
-      secretKeyRef:
-        key: DATABRICKS_TOKEN
+    value: /sql/1.0/warehouses/9f2ff24853ee869f
