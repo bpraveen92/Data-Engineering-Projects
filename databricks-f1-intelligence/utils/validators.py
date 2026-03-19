@@ -76,9 +76,9 @@ def validate_bronze_f1(df, table_name):
         # 2 rows with driver_id == "" → result.warnings: ["null/empty driver_id: 2 rows"]
         # result.passed is always True
     """
-    from utils.schema import MERGE_KEYS
+    from utils.schema import merge_keys
     result = ValidationResult(passed=True, row_count=df.count())
-    for key in MERGE_KEYS.get(table_name, []):
+    for key in merge_keys.get(table_name, []):
         if key not in df.columns:
             continue
         null_count = df.filter(F.col(key).isNull() | (F.col(key) == "")).count()

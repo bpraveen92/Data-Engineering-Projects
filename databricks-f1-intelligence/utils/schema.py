@@ -5,7 +5,7 @@ All Bronze schemas use StringType for raw API fields + two metadata columns.
 Silver schemas use typed columns with derived fields.
 Gold schemas reflect the final analytics shape.
 
-MERGE_KEYS maps table name → list of columns that uniquely identify a row.
+merge_keys maps table name → list of columns that uniquely identify a row.
 """
 
 from pyspark.sql.types import (
@@ -20,12 +20,12 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
-METADATA_FIELDS = [
+metadata_fields = [
     StructField("ingested_at",  TimestampType(), True),
     StructField("source_name",  StringType(),    True),
 ]
 
-MERGE_KEYS = {
+merge_keys = {
     # Bronze
     "bronze_race_schedule":          ["season", "round"],
     "bronze_race_results":           ["season", "round", "driver_id"],
@@ -49,7 +49,7 @@ MERGE_KEYS = {
     "pipeline_checkpoints":          ["pipeline_name"],
 }
 
-BRONZE_RACE_SCHEDULE = StructType([
+bronze_race_schedule = StructType([
     StructField("season",       StringType(), True),
     StructField("round",        StringType(), True),
     StructField("race_name",    StringType(), True),
@@ -61,9 +61,9 @@ BRONZE_RACE_SCHEDULE = StructType([
     StructField("lon",          StringType(), True),
     StructField("race_date",    StringType(), True),
     StructField("race_time",    StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-BRONZE_RACE_RESULTS = StructType([
+bronze_race_results = StructType([
     StructField("season",            StringType(), True),
     StructField("round",             StringType(), True),
     StructField("driver_id",         StringType(), True),
@@ -81,9 +81,9 @@ BRONZE_RACE_RESULTS = StructType([
     StructField("fastest_lap_time",  StringType(), True),
     StructField("fastest_lap_speed", StringType(), True),
     StructField("status",            StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-BRONZE_QUALIFYING = StructType([
+bronze_qualifying = StructType([
     StructField("season",              StringType(), True),
     StructField("round",               StringType(), True),
     StructField("driver_id",           StringType(), True),
@@ -93,9 +93,9 @@ BRONZE_QUALIFYING = StructType([
     StructField("q1_time",             StringType(), True),
     StructField("q2_time",             StringType(), True),
     StructField("q3_time",             StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-BRONZE_PIT_STOPS = StructType([
+bronze_pit_stops = StructType([
     StructField("season",          StringType(), True),
     StructField("round",           StringType(), True),
     StructField("driver_id",       StringType(), True),
@@ -104,9 +104,9 @@ BRONZE_PIT_STOPS = StructType([
     StructField("time_of_day",     StringType(), True),
     StructField("duration",        StringType(), True),
     StructField("duration_millis", StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-BRONZE_DRIVER_STANDINGS = StructType([
+bronze_driver_standings = StructType([
     StructField("season",         StringType(), True),
     StructField("round",          StringType(), True),
     StructField("driver_id",      StringType(), True),
@@ -115,9 +115,9 @@ BRONZE_DRIVER_STANDINGS = StructType([
     StructField("position",       StringType(), True),
     StructField("points",         StringType(), True),
     StructField("wins",           StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-BRONZE_CONSTRUCTOR_STANDINGS = StructType([
+bronze_constructor_standings = StructType([
     StructField("season",           StringType(), True),
     StructField("round",            StringType(), True),
     StructField("constructor_id",   StringType(), True),
@@ -126,9 +126,9 @@ BRONZE_CONSTRUCTOR_STANDINGS = StructType([
     StructField("position",         StringType(), True),
     StructField("points",           StringType(), True),
     StructField("wins",             StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-BRONZE_LAPS = StructType([
+bronze_laps = StructType([
     StructField("session_key",       StringType(), True),
     StructField("driver_number",     StringType(), True),
     StructField("lap_number",        StringType(), True),
@@ -141,9 +141,9 @@ BRONZE_LAPS = StructType([
     StructField("i1_speed",          StringType(), True),
     StructField("i2_speed",          StringType(), True),
     StructField("st_speed",          StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-BRONZE_STINTS = StructType([
+bronze_stints = StructType([
     StructField("session_key",       StringType(), True),
     StructField("driver_number",     StringType(), True),
     StructField("stint_number",      StringType(), True),
@@ -151,9 +151,9 @@ BRONZE_STINTS = StructType([
     StructField("lap_end",           StringType(), True),
     StructField("compound",          StringType(), True),
     StructField("tyre_age_at_start", StringType(), True),
-] + METADATA_FIELDS)
+] + metadata_fields)
 
-SILVER_RACE_RESULTS = StructType([
+silver_race_results = StructType([
     StructField("season",                 IntegerType(), True),
     StructField("round",                  IntegerType(), True),
     StructField("circuit_id",             StringType(),  True),
@@ -179,7 +179,7 @@ SILVER_RACE_RESULTS = StructType([
     StructField("source_name",                StringType(),  True),
 ])
 
-SILVER_QUALIFYING = StructType([
+silver_qualifying = StructType([
     StructField("season",                      IntegerType(), True),
     StructField("round",                       IntegerType(), True),
     StructField("circuit_id",                  StringType(),  True),
@@ -198,7 +198,7 @@ SILVER_QUALIFYING = StructType([
     StructField("source_name",                     StringType(),  True),
 ])
 
-SILVER_DRIVER_STANDINGS = StructType([
+silver_driver_standings = StructType([
     StructField("season",          IntegerType(), True),
     StructField("round",           IntegerType(), True),
     StructField("driver_id",       StringType(),  True),
@@ -212,7 +212,7 @@ SILVER_DRIVER_STANDINGS = StructType([
     StructField("source_name",         StringType(),  True),
 ])
 
-SILVER_CONSTRUCTOR_STANDINGS = StructType([
+silver_constructor_standings = StructType([
     StructField("season",               IntegerType(), True),
     StructField("round",                IntegerType(), True),
     StructField("constructor_id",       StringType(),  True),
@@ -225,7 +225,7 @@ SILVER_CONSTRUCTOR_STANDINGS = StructType([
     StructField("source_name",              StringType(),  True),
 ])
 
-SILVER_LAP_ANALYSIS = StructType([
+silver_lap_analysis = StructType([
     StructField("session_key",       StringType(),  True),
     StructField("season",            IntegerType(), True),
     StructField("round",             IntegerType(), True),
@@ -251,7 +251,7 @@ SILVER_LAP_ANALYSIS = StructType([
     StructField("source_name",           StringType(),  True),
 ])
 
-GOLD_DRIVER_CHAMPIONSHIP = StructType([
+gold_driver_championship = StructType([
     StructField("season",                   IntegerType(), True),
     StructField("driver_id",                StringType(),  True),
     StructField("driver_code",              StringType(),  True),
@@ -267,7 +267,7 @@ GOLD_DRIVER_CHAMPIONSHIP = StructType([
     StructField("updated_at",              TimestampType(), True),
 ])
 
-GOLD_CONSTRUCTOR_CHAMPIONSHIP = StructType([
+gold_constructor_championship = StructType([
     StructField("season",               IntegerType(), True),
     StructField("constructor_id",       StringType(),  True),
     StructField("constructor_name",     StringType(),  True),
@@ -280,7 +280,7 @@ GOLD_CONSTRUCTOR_CHAMPIONSHIP = StructType([
     StructField("updated_at",          TimestampType(), True),
 ])
 
-GOLD_CIRCUIT_BENCHMARKS = StructType([
+gold_circuit_benchmarks = StructType([
     StructField("circuit_id",                    StringType(),  True),
     StructField("circuit_name",                  StringType(),  True),
     StructField("country",                       StringType(),  True),
@@ -300,7 +300,7 @@ GOLD_CIRCUIT_BENCHMARKS = StructType([
     StructField("updated_at",                   TimestampType(), True),
 ])
 
-GOLD_TYRE_STRATEGY_REPORT = StructType([
+gold_tyre_strategy_report = StructType([
     StructField("season",                IntegerType(), True),
     StructField("round",                 IntegerType(), True),
     StructField("circuit_id",            StringType(),  True),
@@ -322,30 +322,30 @@ GOLD_TYRE_STRATEGY_REPORT = StructType([
     StructField("processed_at",         TimestampType(), True),
 ])
 
-PIPELINE_CHECKPOINTS = StructType([
+pipeline_checkpoints = StructType([
     StructField("pipeline_name",           StringType(),    False),
     StructField("last_processed_version",  LongType(),      True),
     StructField("records_processed",       LongType(),      True),
     StructField("processed_at",            TimestampType(), True),
 ])
 
-TABLE_SCHEMAS = {
-    "bronze_race_schedule":          BRONZE_RACE_SCHEDULE,
-    "bronze_race_results":           BRONZE_RACE_RESULTS,
-    "bronze_qualifying":             BRONZE_QUALIFYING,
-    "bronze_pit_stops":              BRONZE_PIT_STOPS,
-    "bronze_driver_standings":       BRONZE_DRIVER_STANDINGS,
-    "bronze_constructor_standings":  BRONZE_CONSTRUCTOR_STANDINGS,
-    "bronze_laps":                   BRONZE_LAPS,
-    "bronze_stints":                 BRONZE_STINTS,
-    "silver_race_results":           SILVER_RACE_RESULTS,
-    "silver_qualifying":             SILVER_QUALIFYING,
-    "silver_driver_standings":       SILVER_DRIVER_STANDINGS,
-    "silver_constructor_standings":  SILVER_CONSTRUCTOR_STANDINGS,
-    "silver_lap_analysis":           SILVER_LAP_ANALYSIS,
-    "gold_driver_championship":      GOLD_DRIVER_CHAMPIONSHIP,
-    "gold_constructor_championship": GOLD_CONSTRUCTOR_CHAMPIONSHIP,
-    "gold_circuit_benchmarks":       GOLD_CIRCUIT_BENCHMARKS,
-    "gold_tyre_strategy_report":     GOLD_TYRE_STRATEGY_REPORT,
-    "pipeline_checkpoints":          PIPELINE_CHECKPOINTS,
+table_schemas = {
+    "bronze_race_schedule":          bronze_race_schedule,
+    "bronze_race_results":           bronze_race_results,
+    "bronze_qualifying":             bronze_qualifying,
+    "bronze_pit_stops":              bronze_pit_stops,
+    "bronze_driver_standings":       bronze_driver_standings,
+    "bronze_constructor_standings":  bronze_constructor_standings,
+    "bronze_laps":                   bronze_laps,
+    "bronze_stints":                 bronze_stints,
+    "silver_race_results":           silver_race_results,
+    "silver_qualifying":             silver_qualifying,
+    "silver_driver_standings":       silver_driver_standings,
+    "silver_constructor_standings":  silver_constructor_standings,
+    "silver_lap_analysis":           silver_lap_analysis,
+    "gold_driver_championship":      gold_driver_championship,
+    "gold_constructor_championship": gold_constructor_championship,
+    "gold_circuit_benchmarks":       gold_circuit_benchmarks,
+    "gold_tyre_strategy_report":     gold_tyre_strategy_report,
+    "pipeline_checkpoints":          pipeline_checkpoints,
 }

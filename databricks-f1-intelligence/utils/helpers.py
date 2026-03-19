@@ -195,11 +195,11 @@ def save_checkpoint(spark, checkpoint_table, pipeline_name, processed_version, r
         # → pipeline_checkpoints row: pipeline_name="bronze_to_silver_results",
         #   last_processed_version=5, records_processed=480, processed_at=<now>
     """
-    from utils.schema import PIPELINE_CHECKPOINTS
+    from utils.schema import pipeline_checkpoints
     now = datetime.now(timezone.utc)
     df = spark.createDataFrame(
         [(pipeline_name, processed_version, records_processed, now)],
-        schema=PIPELINE_CHECKPOINTS,
+        schema=pipeline_checkpoints,
     )
     merge_delta(spark, df, checkpoint_table, ["pipeline_name"])
     logger.info("[%s] Checkpoint saved at version %d (%d records)", pipeline_name, processed_version, records_processed)
