@@ -29,7 +29,6 @@ HOSTNAME  = os.getenv("DATABRICKS_HOST", os.getenv("DATABRICKS_SERVER_HOSTNAME",
 HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH", "")
 TOKEN     = os.getenv("DATABRICKS_TOKEN", "")
 
-
 @st.cache_resource
 def get_connection():
     return dbsql.connect(
@@ -38,7 +37,6 @@ def get_connection():
         access_token=TOKEN,
     )
 
-
 def run_query(sql: str) -> list[dict]:
     conn = get_connection()
     with conn.cursor() as cursor:
@@ -46,12 +44,8 @@ def run_query(sql: str) -> list[dict]:
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-
 def table(name: str) -> str:
     return f"{CATALOG}.{SCHEMA}.{name}"
-
-
-# ── Home page ──────────────────────────────────────────────────────────────────
 
 st.title("🏎 F1 Intelligence")
 st.markdown("Formula 1 analytics powered by **Databricks Medallion Architecture**.")

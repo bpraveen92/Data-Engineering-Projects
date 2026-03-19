@@ -17,7 +17,6 @@ VALID_STATUS_CATEGORIES = {
     "DISQUALIFIED", "DID_NOT_START", "OTHER",
 }
 
-
 class ValidationResult:
     """
     Carries the outcome of a data quality check for one table.
@@ -68,9 +67,6 @@ class ValidationResult:
         for f in self.failures:
             logger.error("%sFAIL: %s", prefix, f)
 
-
-# ── Bronze validators (soft-fail) ─────────────────────────────────────────────
-
 def validate_bronze_f1(df, table_name):
     """
     Soft-fail Bronze validator: warns on null/empty MERGE key columns, never blocks ingestion.
@@ -90,9 +86,6 @@ def validate_bronze_f1(df, table_name):
             result.warnings.append(f"null/empty {key}: {null_count:,} rows")
     result.log(table_name)
     return result
-
-
-# ── Silver validators (hard-fail) ─────────────────────────────────────────────
 
 def validate_silver_results(df):
     """
@@ -132,7 +125,6 @@ def validate_silver_results(df):
     result = ValidationResult(passed=len(failures) == 0, failures=failures, warnings=warnings, row_count=row_count)
     result.log("silver_race_results")
     return result
-
 
 def validate_silver_laps(df):
     """
@@ -180,9 +172,6 @@ def validate_silver_laps(df):
     result = ValidationResult(passed=len(failures) == 0, failures=failures, warnings=warnings, row_count=row_count)
     result.log("silver_lap_analysis")
     return result
-
-
-# ── Gold validators (hard-fail) ───────────────────────────────────────────────
 
 def validate_gold_standings(df, table_name):
     """

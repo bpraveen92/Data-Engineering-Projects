@@ -20,14 +20,10 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
-# ── Shared metadata columns appended by add_metadata_columns() ─────────────────
-
 METADATA_FIELDS = [
     StructField("ingested_at",  TimestampType(), True),
     StructField("source_name",  StringType(),    True),
 ]
-
-# ── MERGE key registry ─────────────────────────────────────────────────────────
 
 MERGE_KEYS = {
     # Bronze
@@ -52,8 +48,6 @@ MERGE_KEYS = {
     # Infrastructure
     "pipeline_checkpoints":          ["pipeline_name"],
 }
-
-# ── Bronze schemas ─────────────────────────────────────────────────────────────
 
 BRONZE_RACE_SCHEDULE = StructType([
     StructField("season",       StringType(), True),
@@ -159,8 +153,6 @@ BRONZE_STINTS = StructType([
     StructField("tyre_age_at_start", StringType(), True),
 ] + METADATA_FIELDS)
 
-# ── Silver schemas ─────────────────────────────────────────────────────────────
-
 SILVER_RACE_RESULTS = StructType([
     StructField("season",                 IntegerType(), True),
     StructField("round",                  IntegerType(), True),
@@ -259,8 +251,6 @@ SILVER_LAP_ANALYSIS = StructType([
     StructField("source_name",           StringType(),  True),
 ])
 
-# ── Gold schemas ───────────────────────────────────────────────────────────────
-
 GOLD_DRIVER_CHAMPIONSHIP = StructType([
     StructField("season",                   IntegerType(), True),
     StructField("driver_id",                StringType(),  True),
@@ -338,8 +328,6 @@ PIPELINE_CHECKPOINTS = StructType([
     StructField("records_processed",       LongType(),      True),
     StructField("processed_at",            TimestampType(), True),
 ])
-
-# ── Lookup: table name → schema ────────────────────────────────────────────────
 
 TABLE_SCHEMAS = {
     "bronze_race_schedule":          BRONZE_RACE_SCHEDULE,

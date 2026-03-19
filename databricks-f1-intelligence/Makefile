@@ -4,8 +4,6 @@ PYTHON   := python3
 UV       := uv
 DATABRICKS := databricks
 
-# ── Local dev ──────────────────────────────────────────────────────────────────
-
 install:
 	$(UV) pip install -e ".[dev]"
 
@@ -21,8 +19,6 @@ fmt:
 clean:
 	rm -rf dist/ *.egg-info/ __pycache__ .pytest_cache data/
 
-# ── Databricks Asset Bundle ────────────────────────────────────────────────────
-
 validate:
 	$(DATABRICKS) bundle validate --target dev
 
@@ -34,8 +30,6 @@ deploy-prod: build
 
 run-dev:
 	$(DATABRICKS) bundle run f1_intelligence_job --target dev
-
-# ── Data fetch ─────────────────────────────────────────────────────────────────
 
 fetch-2024:
 	$(PYTHON) scripts/fetch_and_upload.py --season 2024 --mode full

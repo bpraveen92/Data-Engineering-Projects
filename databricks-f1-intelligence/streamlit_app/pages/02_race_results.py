@@ -22,7 +22,6 @@ round_options = {r["race_name"]: r["round"] for r in rounds}
 selected_race  = st.sidebar.selectbox("Race", list(round_options.keys()))
 selected_round = round_options[selected_race]
 
-# ── Race result table ──────────────────────────────────────────────────────────
 rows = run_query(f"""
     SELECT
         final_position   AS Pos,
@@ -78,7 +77,6 @@ if rows:
 else:
     st.info("No race results available for the selected round.")
 
-# ── Qualifying results ──────────────────────────────────────────────────────────
 st.subheader("Qualifying")
 qual = run_query(f"""
     SELECT

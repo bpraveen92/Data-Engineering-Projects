@@ -33,7 +33,6 @@ round_options = {r["circuit_id"]: r["round"] for r in rounds}
 selected_circuit = st.sidebar.selectbox("Race", list(round_options.keys()))
 selected_round   = round_options[selected_circuit]
 
-# ── Strategy table ─────────────────────────────────────────────────────────────
 rows = run_query(f"""
     SELECT
         final_position      AS Pos,
@@ -78,7 +77,6 @@ if rows:
 else:
     st.info("No tyre strategy data for the selected race.")
 
-# ── Lap-level compound timeline ────────────────────────────────────────────────
 st.subheader("Lap-by-Lap Tyre Timeline")
 laps = run_query(f"""
     SELECT driver_code, lap_number, compound, lap_duration_seconds
