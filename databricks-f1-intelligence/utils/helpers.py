@@ -129,6 +129,12 @@ def merge_delta(spark, df, full_table_name, merge_keys):
         #                       AND target.round=source.round
         #                       AND target.driver_id=source.driver_id
     """
+    # Deduplicate source rows by merge keys before writing or merging.
+    # Prevents Delta MERGE ambiguity when the source contains multiple rows
+    # sharing the same key — e.g. after a range-join that produces duplicates,
+    # or when a CDF batch contains several postimage commits for the same key.
+    df = df.dropDuplicates(merge_keys)
+
     if not table_exists(spark, full_table_name):
         logger.info("Creating %s (first write)", full_table_name)
         df.write.format("delta").mode("overwrite").saveAsTable(full_table_name)

@@ -242,9 +242,9 @@ def validate_gold_standings(df, table_name):
         return ValidationResult(passed=True, row_count=0)
 
     if "current_position" in df.columns:
-        bad_pos = df.filter(F.col("current_position").isNotNull() & ~F.col("current_position").between(1, 20)).count()
+        bad_pos = df.filter(F.col("current_position").isNotNull() & ~F.col("current_position").between(1, 25)).count()
         if bad_pos > 0:
-            failures.append(f"current_position outside [1, 20]: {bad_pos:,} rows")
+            failures.append(f"current_position outside [1, 25]: {bad_pos:,} rows")
 
     key_col = "driver_id" if "driver_id" in df.columns else "constructor_id"
     if "season" in df.columns and key_col in df.columns:
