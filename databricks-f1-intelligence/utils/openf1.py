@@ -28,12 +28,9 @@ class OpenF1Client:
     """
     HTTP client for the OpenF1 REST API (https://openf1.org).
 
-    OpenF1 organises telemetry data by session_key rather than by season/round.
-    fetch_and_upload.py resolves session_key → round by joining OpenF1 session
-    dates against the Jolpica race calendar on race_date (YYYY-MM-DD).
-
-    Historical data from 2023 onwards is freely available without authentication.
-    All field values are returned as strings to match the Bronze layer schema.
+    Uses session_key (not season/round); fetch_and_upload.py resolves session_key → round
+    by matching OpenF1 session dates against the Jolpica race calendar on race_date.
+    All field values are returned as strings to match the Bronze schema.
     """
 
     def __init__(self, delay=REQUEST_DELAY):
@@ -43,11 +40,8 @@ class OpenF1Client:
 
     def call_api(self, endpoint, params=None):
         """
-        Make a GET request to the OpenF1 API and return the parsed JSON list.
-
-        Returns an empty list on 404. All other HTTP errors raise via
-        raise_for_status(). The delay between calls prevents rate-limit issues
-        during the ~480-call lap fetch for a full 2024 season.
+        GET an OpenF1 endpoint, return parsed JSON list.
+        Returns [] on 404. Retries up to 3× on 429 with exponential backoff.
 
         Example:
             client.call_api("laps", {"session_key": 9158, "driver_number": 44})
@@ -76,19 +70,12 @@ class OpenF1Client:
 
     def fetch_race_sessions(self, year):
         """
-        Fetch metadata for every Race session in a calendar year.
-
-        Used by fetch_and_upload.py to build the session_key → round mapping.
-        The date_start field is truncated to YYYY-MM-DD and matched against the
-        Jolpica race_date column to resolve the correct round number.
+        Fetch metadata for every Race session in a year.
+        Used by fetch_and_upload.py to build the session_key → round mapping via date join.
 
         Example row (Bahrain 2024):
-            {
-                "session_key": "9158", "session_name": "Race",
-                "year": "2024", "date_start": "2024-03-02T15:00:00+00:00",
-                "circuit_key": "3", "circuit_short_name": "Bahrain",
-                "country_name": "Bahrain",
-            }
+            {"session_key": "9158", "session_name": "Race", "year": "2024",
+             "date_start": "2024-03-02T15:00:00+00:00", "circuit_short_name": "Bahrain"}
         """
         results = self.call_api("sessions", params={"year": year, "session_name": "Race"})
         rows = []
@@ -106,18 +93,12 @@ class OpenF1Client:
 
     def fetch_drivers_for_session(self, session_key):
         """
-        Fetch driver metadata for all participants in a session.
-
-        Called once per session to get the list of driver_numbers before
-        looping through per-driver lap fetches. Returns ~20 rows per session.
+        Fetch driver metadata for all participants in a session (~20 rows).
+        Called once per session before looping through per-driver lap fetches.
 
         Example row:
-            {
-                "session_key": "9158", "driver_number": "44",
-                "broadcast_name": "L HAMILTON", "full_name": "Lewis Hamilton",
-                "name_acronym": "HAM", "team_name": "Mercedes",
-                "team_colour": "27F4D2", "country_code": "GBR",
-            }
+            {"session_key": "9158", "driver_number": "44", "full_name": "Lewis Hamilton",
+             "name_acronym": "HAM", "team_name": "Mercedes", "country_code": "GBR"}
         """
         results = self.call_api("drivers", params={"session_key": session_key})
         rows = []
@@ -136,25 +117,14 @@ class OpenF1Client:
 
     def fetch_laps(self, session_key, driver_number):
         """
-        Fetch per-lap timing data for one driver in one session.
-
-        This is the most granular and voluminous call — ~57 rows per driver
-        per race. For a full 2024 season (~20 drivers × 24 sessions) this
-        function is called ~480 times, yielding ~26 000 rows total.
-
-        The Bronze MERGE key is (session_key, driver_number, lap_number).
-        Sector times and speed trap readings are also captured for later
-        performance analysis in Silver.
+        Fetch per-lap timing for one driver in one session (~57 rows per race).
+        Called ~480 times for a full 2024 season (20 drivers × 24 sessions) → ~26 000 rows.
+        MERGE key: (session_key, driver_number, lap_number).
 
         Example row (Hamilton, lap 3, Bahrain 2024):
-            {
-                "session_key": "9158", "driver_number": "44", "lap_number": "3",
-                "lap_duration": "97.814", "is_pit_out_lap": "False",
-                "date_start": "2024-03-02T15:09:43.425000+00:00",
-                "duration_sector_1": "29.512", "duration_sector_2": "39.241",
-                "duration_sector_3": "29.061", "i1_speed": "298",
-                "i2_speed": "265", "st_speed": "317",
-            }
+            {"session_key": "9158", "driver_number": "44", "lap_number": "3",
+             "lap_duration": "97.814", "duration_sector_1": "29.512",
+             "duration_sector_2": "39.241", "duration_sector_3": "29.061", "st_speed": "317"}
         """
         results = self.call_api("laps", params={
             "session_key":   session_key,
@@ -180,20 +150,12 @@ class OpenF1Client:
 
     def fetch_stints(self, session_key):
         """
-        Fetch tyre stint data for all drivers in a session.
-
-        A stint is a continuous period on one set of tyres. A typical race has
-        2–3 stints per driver, giving ~40–60 rows per session. The Silver
-        notebook joins stints to laps on (session_key, driver_number,
-        lap_start <= lap_number <= lap_end) to attach compound and tyre age
-        to every individual lap.
+        Fetch tyre stint data for all drivers in a session (~40–60 rows).
+        Silver joins stints to laps on (session_key, driver_number, lap_start ≤ lap_number ≤ lap_end).
 
         Example row (Verstappen, Stint 1, Bahrain 2024):
-            {
-                "session_key": "9158", "driver_number": "1",
-                "stint_number": "1", "lap_start": "1", "lap_end": "20",
-                "compound": "MEDIUM", "tyre_age_at_start": "0",
-            }
+            {"session_key": "9158", "driver_number": "1", "stint_number": "1",
+             "lap_start": "1", "lap_end": "20", "compound": "MEDIUM", "tyre_age_at_start": "0"}
         """
         results = self.call_api("stints", params={"session_key": session_key})
         rows = []
@@ -211,19 +173,12 @@ class OpenF1Client:
 
     def fetch_pit_events(self, session_key):
         """
-        Fetch pit lane entry/exit events for a session from the OpenF1 API.
-
-        Note: pit stop durations from OpenF1 complement the Jolpica pit_stops
-        table, which is sourced from official timing data. This method is
-        available for optional enrichment but is not part of the primary
-        Bronze ingestion flow.
+        Fetch pit lane entry/exit events for a session.
+        Not part of the primary Bronze ingestion flow — available for optional enrichment.
 
         Example row:
-            {
-                "session_key": "9158", "driver_number": "1",
-                "lap_number": "20", "pit_duration": "24.5",
-                "date": "2024-03-02T15:48:17.123000+00:00",
-            }
+            {"session_key": "9158", "driver_number": "1",
+             "lap_number": "20", "pit_duration": "24.5"}
         """
         results = self.call_api("pit", params={"session_key": session_key})
         rows = []
@@ -239,19 +194,12 @@ class OpenF1Client:
 
     def fetch_weather(self, session_key):
         """
-        Fetch time-series weather readings sampled throughout a session.
-
-        OpenF1 records a weather snapshot roughly every 30 seconds, producing
-        100–200 rows per race session. Not ingested in the primary Bronze flow
-        but available for future enrichment of the lap analysis table.
+        Fetch time-series weather readings throughout a session (~100–200 rows per race).
+        Not part of the primary Bronze ingestion flow — available for future enrichment.
 
         Example row:
-            {
-                "session_key": "9158", "date": "2024-03-02T15:03:00+00:00",
-                "air_temperature": "29.5", "track_temperature": "38.1",
-                "humidity": "57.0", "wind_speed": "3.0",
-                "wind_direction": "155", "rainfall": "0",
-            }
+            {"session_key": "9158", "date": "2024-03-02T15:03:00+00:00",
+             "air_temperature": "29.5", "track_temperature": "38.1", "humidity": "57.0"}
         """
         results = self.call_api("weather", params={"session_key": session_key})
         rows = []

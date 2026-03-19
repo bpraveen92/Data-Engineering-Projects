@@ -19,18 +19,14 @@ logger = logging.getLogger(__name__)
 
 def get_or_create_catalog_schema(spark, catalog, schema):
     """
-    Create the Unity Catalog catalog and schema if they do not already exist,
-    then set them as the active catalog and schema for the session.
-
-    Called at the top of every ETL notebook so subsequent table references
-    can use unqualified names where needed.
+    Create catalog and schema if they don't exist, then set them as active.
+    Called at the top of every ETL notebook.
 
     Example:
         get_or_create_catalog_schema(spark, "f1_intelligence", "f1_dev")
-        # → runs: CREATE CATALOG IF NOT EXISTS `f1_intelligence`
-        #          CREATE SCHEMA  IF NOT EXISTS `f1_intelligence`.`f1_dev`
-        #          USE CATALOG `f1_intelligence`
-        #          USE SCHEMA  `f1_dev`
+        # → CREATE CATALOG IF NOT EXISTS `f1_intelligence`
+        #   CREATE SCHEMA  IF NOT EXISTS `f1_intelligence`.`f1_dev`
+        #   USE CATALOG `f1_intelligence` / USE SCHEMA `f1_dev`
     """
     spark.sql(f"CREATE CATALOG IF NOT EXISTS `{catalog}`")
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
@@ -41,15 +37,13 @@ def get_or_create_catalog_schema(spark, catalog, schema):
 
 def table_exists(spark, full_table_name):
     """
-    Return True if a Delta table exists in the Unity Catalog, False otherwise.
-
-    Uses DESCRIBE TABLE rather than querying information_schema so it works
-    consistently across Databricks Runtime versions.
+    Return True if a Delta table exists in Unity Catalog, False otherwise.
+    Uses DESCRIBE TABLE — works consistently across all Databricks Runtime versions.
 
     Example:
         table_exists(spark, "f1_intelligence.f1_dev.bronze_race_results")
-        # → True  (if the table has been created)
-        # → False (on first run before Bronze ingestion)
+        # → True  (table exists)
+        # → False (first run, before Bronze ingestion)
     """
     try:
         spark.sql(f"DESCRIBE TABLE {full_table_name}")
@@ -63,10 +57,6 @@ def table_exists(spark, full_table_name):
 def enable_cdf(spark, full_table_name):
     """
     Enable Delta Change Data Feed on an existing table.
-
-    CDF allows downstream Silver and Gold notebooks to read only the rows
-    that changed since the last checkpoint version, avoiding full-table scans
-    on every incremental run. Called once by merge_delta() at table creation.
 
     Example:
         enable_cdf(spark, "f1_intelligence.f1_dev.bronze_race_results")
@@ -83,17 +73,9 @@ def enable_liquid_clustering(spark, full_table_name, cluster_cols):
     """
     Apply Liquid Clustering to an existing Delta table.
 
-    Liquid Clustering replaces static PARTITIONED BY + ZORDER and lets
-    Databricks reorganise data files automatically at cluster time. It is
-    applied once after table creation, using the MERGE keys as cluster columns
-    so that MERGE predicates can skip irrelevant files efficiently.
-
     Example:
-        enable_liquid_clustering(
-            spark,
-            "f1_intelligence.f1_dev.bronze_race_results",
-            ["season", "round", "driver_id"],
-        )
+        enable_liquid_clustering(spark, "f1_intelligence.f1_dev.bronze_race_results",
+                                 ["season", "round", "driver_id"])
         # → ALTER TABLE ... CLUSTER BY (season, round, driver_id)
     """
     cols = ", ".join(cluster_cols)
@@ -105,29 +87,17 @@ def enable_liquid_clustering(spark, full_table_name, cluster_cols):
 
 def merge_delta(spark, df, full_table_name, merge_keys):
     """
-    Upsert a DataFrame into a Delta table using a MERGE (insert-or-update).
+    Upsert a DataFrame into a Delta table.
 
-    First call: the table does not yet exist, so it is created via an
-    overwrite write, then CDF and Liquid Clustering are enabled immediately.
-
-    Subsequent calls: a true Delta MERGE is executed —
-        - Matched rows (same merge key values) → all non-key columns updated.
-        - Unmatched source rows                → inserted as new rows.
-
-    This is the core function that makes every pipeline run fully idempotent.
-    Re-running for the same season/round replaces existing rows rather than
-    duplicating them, and post-race steward corrections propagate automatically.
+    First call: creates the table, then enables CDF and Liquid Clustering.
+    Subsequent calls: MERGE ON merge_keys — matched rows updated, new rows inserted.
+    Source rows are deduplicated by merge_keys before every write.
 
     Example:
-        merge_delta(
-            spark, df_results,
-            "f1_intelligence.f1_dev.bronze_race_results",
-            ["season", "round", "driver_id"],
-        )
+        merge_delta(spark, df_results, "f1_intelligence.f1_dev.bronze_race_results",
+                    ["season", "round", "driver_id"])
         # First run  → creates table, enables CDF + Liquid Clustering
-        # Subsequent → MERGE ON target.season=source.season
-        #                       AND target.round=source.round
-        #                       AND target.driver_id=source.driver_id
+        # Subsequent → MERGE ON target.season=source.season AND ...
     """
     # Deduplicate source rows by merge keys before writing or merging.
     # Prevents Delta MERGE ambiguity when the source contains multiple rows
@@ -157,12 +127,8 @@ def merge_delta(spark, df, full_table_name, merge_keys):
 
 def write_delta_append(df, full_table_name):
     """
-    Append rows to an existing Delta table without deduplication.
-
-    Used for gold_tyre_strategy_report, which accumulates one set of rows per
-    race per run. Idempotency is enforced upstream via the CDF checkpoint guard
-    — if no new Silver rows exist the Gold notebook exits before reaching this
-    call, so duplicate appends cannot occur.
+    Append rows to a Delta table without deduplication.
+    Idempotency is enforced upstream by the CDF checkpoint guard.
 
     Example:
         write_delta_append(df_tyre, "f1_intelligence.f1_dev.gold_tyre_strategy_report")
@@ -177,9 +143,6 @@ def get_current_table_version(spark, full_table_name):
     """
     Return the latest commit version number of a Delta table.
 
-    Used by read_incremental_or_full() to record which version was processed
-    and by save_checkpoint() to stamp the checkpoint record.
-
     Example: get_current_table_version(spark, "f1_intelligence.f1_dev.bronze_race_results")
              → 5  (after 6 commits: initial write + 5 subsequent MERGEs)
     """
@@ -190,15 +153,9 @@ def get_current_table_version(spark, full_table_name):
 
 def read_cdf_changes(spark, full_table_name, from_version):
     """
-    Read only the rows that changed in a Delta table since a given version.
-
-    Filters to _change_type IN ('insert', 'update_postimage') so the caller
-    always receives the final state of each changed record — not the before
-    image. This ensures steward penalty corrections (which arrive as
-    update_postimage rows) flow correctly through Bronze → Silver → Gold.
-
-    CDF metadata columns (_change_type, _commit_version, _commit_timestamp)
-    are dropped before returning so the DataFrame schema matches a normal read.
+    Read only changed rows since a given version, filtered to inserts and
+    post-update images (ensures steward corrections propagate correctly).
+    CDF metadata columns are dropped before returning.
 
     Example:
         read_cdf_changes(spark, "f1_intelligence.f1_dev.bronze_race_results", from_version=3)
@@ -217,27 +174,17 @@ def read_cdf_changes(spark, full_table_name, from_version):
 
 def read_incremental_or_full(spark, full_table_name, checkpoint_table, pipeline_name):
     """
-    Return a (df, source_version) tuple for either a full or incremental read.
+    Return (df, source_version) for either a full or incremental read.
 
-    Decision logic:
-      - No checkpoint found (first run)  → full table read; source_version is
-        the current table version.
-      - Checkpoint exists, no new commits → returns an empty DataFrame with the
-        correct schema; source_version is the current (unchanged) version.
-      - Checkpoint exists, new commits    → CDF read from last_version+1 up to
-        the current version via read_cdf_changes().
-
-    The caller is responsible for calling save_checkpoint() with source_version
-    after a successful downstream write.
+    - No checkpoint (first run)  → full read; source_version = current version.
+    - No new commits             → empty DataFrame; source_version = current version.
+    - New commits exist          → CDF read from last_version+1 to current version.
 
     Example:
         df, version = read_incremental_or_full(
-            spark,
-            "f1_intelligence.f1_dev.bronze_race_results",
-            "f1_intelligence.f1_dev.pipeline_checkpoints",
-            "bronze_to_silver_results",
-        )
-        # First run  → full read of bronze_race_results, version=0
+            spark, "f1_intelligence.f1_dev.bronze_race_results",
+            "f1_intelligence.f1_dev.pipeline_checkpoints", "bronze_to_silver_results")
+        # First run  → full read, version=0
         # Second run → CDF read from version 1 → N (new/changed rows only)
     """
     last_version = get_latest_checkpoint_version(spark, checkpoint_table, pipeline_name)
@@ -261,22 +208,13 @@ def read_incremental_or_full(spark, full_table_name, checkpoint_table, pipeline_
 
 def save_checkpoint(spark, checkpoint_table, pipeline_name, processed_version, records_processed):
     """
-    Persist a pipeline checkpoint so the next run knows where to resume from.
-
-    Upserts a single row into the pipeline_checkpoints table keyed on
-    pipeline_name. Three checkpoint entries are maintained across the project:
-        "bronze_to_silver_results" — tracks bronze_race_results table version
-        "bronze_to_silver_laps"    — tracks bronze_laps table version
-        "silver_to_gold"           — tracks silver_race_results table version
+    Upsert a checkpoint row keyed on pipeline_name.
+    Three entries exist: "bronze_to_silver_results", "bronze_to_silver_laps", "silver_to_gold".
 
     Example:
-        save_checkpoint(
-            spark, "f1_intelligence.f1_dev.pipeline_checkpoints",
-            pipeline_name="bronze_to_silver_results",
-            processed_version=5,
-            records_processed=480,
-        )
-        # pipeline_checkpoints row: pipeline_name="bronze_to_silver_results",
+        save_checkpoint(spark, "f1_intelligence.f1_dev.pipeline_checkpoints",
+                        "bronze_to_silver_results", processed_version=5, records_processed=480)
+        # → pipeline_checkpoints row: pipeline_name="bronze_to_silver_results",
         #   last_processed_version=5, records_processed=480, processed_at=<now>
     """
     from utils.schema import PIPELINE_CHECKPOINTS
@@ -291,19 +229,13 @@ def save_checkpoint(spark, checkpoint_table, pipeline_name, processed_version, r
 
 def get_latest_checkpoint_version(spark, checkpoint_table, pipeline_name):
     """
-    Look up the last successfully processed Delta version for a pipeline.
-
-    Returns None when the checkpoint table does not yet exist (first run),
-    which signals read_incremental_or_full() to perform a full table read.
+    Return the last successfully processed Delta version for a pipeline, or None on first run.
 
     Example:
-        get_latest_checkpoint_version(
-            spark,
-            "f1_intelligence.f1_dev.pipeline_checkpoints",
-            "bronze_to_silver_results",
-        )
-        # First run  → None  (table doesn't exist yet)
-        # Second run → 5     (version recorded after the first successful write)
+        get_latest_checkpoint_version(spark, "f1_intelligence.f1_dev.pipeline_checkpoints",
+                                      "bronze_to_silver_results")
+        # First run  → None
+        # Second run → 5
     """
     if not table_exists(spark, checkpoint_table):
         return None
@@ -320,17 +252,11 @@ def get_latest_checkpoint_version(spark, checkpoint_table, pipeline_name):
 
 def add_metadata_columns(df, source):
     """
-    Append ingested_at and source_name columns to a Bronze DataFrame.
-
-    ingested_at — current cluster timestamp at the time the notebook cell runs.
-    source_name — identifies the originating API ("jolpica_f1" or "openf1"),
-                  useful for lineage tracing and debugging schema mismatches.
+    Append ingested_at (current timestamp) and source_name columns.
 
     Example:
         df = add_metadata_columns(spark.read.parquet(path), "jolpica_f1")
-        # df now has two extra columns:
-        #   ingested_at: 2024-03-02 16:00:00.000 UTC
-        #   source_name: "jolpica_f1"
+        # df has two extra columns: ingested_at, source_name="jolpica_f1"
     """
     return (
         df
@@ -344,9 +270,6 @@ def add_metadata_columns(df, source):
 def print_table_stats(spark, full_table_name):
     """
     Print a one-line summary of a Delta table's current row count and version.
-
-    Called after every MERGE or APPEND as a lightweight observability check.
-    Output format: "<catalog.schema.table>: N rows, Delta version V"
 
     Example output:
         f1_intelligence.f1_dev.bronze_race_results: 480 rows, Delta version 1
