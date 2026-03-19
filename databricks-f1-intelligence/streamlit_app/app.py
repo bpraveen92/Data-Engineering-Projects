@@ -5,9 +5,14 @@ Shared database connection and query helpers used by all pages.
 """
 
 import os
+import certifi
 import streamlit as st
 from databricks import sql as dbsql
-from databricks.sdk import WorkspaceClient
+
+# On macOS the system keychain can contain conflicting CA certs that break TLS
+# to Databricks. Force the requests/urllib3 stack to use certifi's bundle.
+os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
 st.set_page_config(
     page_title="F1 Intelligence",
@@ -20,21 +25,17 @@ CATALOG   = os.getenv("CATALOG",  "f1_intelligence")
 SCHEMA    = os.getenv("SCHEMA",   "f1_dev")
 # Databricks Apps auto-injects DATABRICKS_HOST and DATABRICKS_TOKEN for the
 # app service principal. DATABRICKS_HTTP_PATH is set explicitly in app.yaml.
-HOSTNAME  = os.getenv("DATABRICKS_HOST", os.getenv("DATABRICKS_SERVER_HOSTNAME", ""))
+HOSTNAME  = os.getenv("DATABRICKS_HOST", os.getenv("DATABRICKS_SERVER_HOSTNAME", "")).replace("https://", "")
 HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH", "")
 TOKEN     = os.getenv("DATABRICKS_TOKEN", "")
 
 
 @st.cache_resource
 def get_connection():
-    # Inside Databricks Apps, OAuth M2M credentials are injected automatically.
-    # Using WorkspaceClient as the credential provider handles both OAuth (Apps)
-    # and PAT (local dev) without needing to switch code paths.
-    w = WorkspaceClient()
     return dbsql.connect(
-        server_hostname=w.config.host.replace("https://", ""),
+        server_hostname=HOSTNAME,
         http_path=HTTP_PATH,
-        credentials_provider=w.config.authenticate,
+        access_token=TOKEN,
     )
 
 
