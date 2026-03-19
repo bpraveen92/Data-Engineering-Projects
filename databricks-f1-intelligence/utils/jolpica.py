@@ -21,13 +21,8 @@ class JolpicaClient:
     """
     HTTP client for the Jolpica-F1 REST API.
 
-    Wraps every endpoint used by the pipeline and returns plain list[dict]
-    rows ready for pandas / PySpark consumption. All string values are kept
-    as strings at this layer — type casting happens in the Silver notebook.
-
-    Rate limiting: a configurable delay (default 0.5 s) is injected between
-    calls so we stay within Jolpica's fair-use policy for a shared public
-    service.
+    Returns plain list[dict] — all values kept as strings; type casting happens in Silver.
+    A configurable delay (default 1 s) is injected between calls to respect fair-use limits.
     """
 
     def __init__(self, delay=REQUEST_DELAY):
@@ -37,11 +32,9 @@ class JolpicaClient:
 
     def call_api(self, path):
         """
-        Make a GET request to the Jolpica API and return the parsed JSON body.
-
-        Returns None on 404 (e.g. sprint-weekend qualifying, which Jolpica
-        does not serve). Retries up to 3 times on 429 (rate limit) with
-        exponential backoff (10 s, 20 s, 40 s). All other HTTP errors raise.
+        GET a Jolpica endpoint, return parsed JSON.
+        Returns None on 404 (e.g. sprint-weekend qualifying).
+        Retries up to 3× on 429 with exponential backoff (10 s, 20 s, 40 s).
 
         Example:
             client.call_api("/2024/1/results.json?limit=25")
@@ -71,17 +64,12 @@ class JolpicaClient:
     def fetch_races(self, season):
         """
         Fetch the full race calendar and circuit metadata for a season.
-
-        Returns one row per race. For 2024 that is 24 rows.
+        Returns one row per race (24 for 2024).
 
         Example row:
-            {
-                "season": "2024", "round": "1", "race_name": "Bahrain Grand Prix",
-                "circuit_id": "bahrain", "circuit_name": "Bahrain International Circuit",
-                "locality": "Sakhir", "country": "Bahrain",
-                "lat": "26.0325", "lon": "50.5106",
-                "race_date": "2024-03-02", "race_time": "15:00:00Z",
-            }
+            {"season": "2024", "round": "1", "race_name": "Bahrain Grand Prix",
+             "circuit_id": "bahrain", "circuit_name": "Bahrain International Circuit",
+             "locality": "Sakhir", "country": "Bahrain", "race_date": "2024-03-02"}
         """
         data = self.call_api(f"/{season}/races.json?limit=50")
         if not data:
@@ -107,22 +95,13 @@ class JolpicaClient:
 
     def fetch_results(self, season, round_num):
         """
-        Fetch race classification for one round — one row per classified/retired driver.
-
-        The MERGE key for this table is (season, round, driver_id). Post-race
-        steward penalties that change a driver's position or points will update
-        an existing row on the next pipeline run — the primary upsert scenario.
+        Fetch race classification for one round — one row per driver.
+        MERGE key: (season, round, driver_id). Post-race steward penalties update existing rows.
 
         Example row (Bahrain 2024, Verstappen):
-            {
-                "season": "2024", "round": "1", "driver_id": "max_verstappen",
-                "driver_code": "VER", "driver_number": "1",
-                "constructor_id": "red_bull", "grid_position": "1",
-                "final_position": "1", "position_text": "1", "points": "25",
-                "laps_completed": "57", "race_time": "1:31:44.742",
-                "fastest_lap_rank": "2", "fastest_lap_time": "1:32.608",
-                "fastest_lap_speed": "206.018", "status": "Finished",
-            }
+            {"season": "2024", "round": "1", "driver_id": "max_verstappen",
+             "driver_code": "VER", "constructor_id": "red_bull", "grid_position": "1",
+             "final_position": "1", "points": "25", "status": "Finished"}
         """
         data = self.call_api(f"/{season}/{round_num}/results.json?limit=25")
         if not data:
@@ -159,19 +138,12 @@ class JolpicaClient:
 
     def fetch_qualifying(self, season, round_num):
         """
-        Fetch qualifying session results for one round — one row per driver.
-
-        Returns an empty list for sprint-format weekends (6 of 24 rounds in
-        2024) because Jolpica serves a 404 for those rounds. The Silver
-        notebook handles this gracefully with an early exit.
+        Fetch qualifying results for one round — one row per driver.
+        Returns [] for sprint-format weekends (6 of 24 rounds in 2024) where Jolpica returns 404.
 
         Example row (Bahrain 2024, Verstappen — pole):
-            {
-                "season": "2024", "round": "1", "driver_id": "max_verstappen",
-                "driver_code": "VER", "constructor_id": "red_bull",
-                "qualifying_position": "1",
-                "q1_time": "1:29.921", "q2_time": "1:28.887", "q3_time": "1:29.179",
-            }
+            {"season": "2024", "round": "1", "driver_id": "max_verstappen",
+             "driver_code": "VER", "q1_time": "1:29.921", "q2_time": "1:28.887", "q3_time": "1:29.179"}
         """
         data = self.call_api(f"/{season}/{round_num}/qualifying.json?limit=25")
         if not data:
@@ -199,16 +171,11 @@ class JolpicaClient:
     def fetch_pit_stops(self, season, round_num):
         """
         Fetch pit stop events for one round — one row per stop per driver.
-
-        A driver who stops twice produces two rows (stop_number "1" and "2").
-        The MERGE key is (season, round, driver_id, stop_number).
+        MERGE key: (season, round, driver_id, stop_number).
 
         Example row:
-            {
-                "season": "2024", "round": "1", "driver_id": "max_verstappen",
-                "stop_number": "1", "lap": "27",
-                "time_of_day": "16:14:22", "duration": "2.412", "duration_millis": "",
-            }
+            {"season": "2024", "round": "1", "driver_id": "max_verstappen",
+             "stop_number": "1", "lap": "27", "duration": "2.412"}
         """
         data = self.call_api(f"/{season}/{round_num}/pitstops.json?limit=100")
         if not data:
@@ -232,18 +199,12 @@ class JolpicaClient:
 
     def fetch_driver_standings(self, season, round_num):
         """
-        Fetch the WDC standings snapshot after a specific round.
-
-        Returns one row per driver (20 for 2024). The Silver notebook adds a
-        position_change column via a LAG window over season + driver ordered
-        by round.
+        Fetch WDC standings after a specific round — one row per driver (20 for 2024).
 
         Example row (after Bahrain 2024):
-            {
-                "season": "2024", "round": "1", "driver_id": "max_verstappen",
-                "driver_code": "VER", "constructor_id": "red_bull",
-                "position": "1", "points": "25", "wins": "1",
-            }
+            {"season": "2024", "round": "1", "driver_id": "max_verstappen",
+             "driver_code": "VER", "constructor_id": "red_bull",
+             "position": "1", "points": "25", "wins": "1"}
         """
         data = self.call_api(f"/{season}/{round_num}/driverStandings.json")
         if not data:
@@ -270,16 +231,11 @@ class JolpicaClient:
 
     def fetch_constructor_standings(self, season, round_num):
         """
-        Fetch the WCC standings snapshot after a specific round.
-
-        Returns one row per constructor (10 for 2024).
+        Fetch WCC standings after a specific round — one row per constructor (10 for 2024).
 
         Example row (after Bahrain 2024):
-            {
-                "season": "2024", "round": "1", "constructor_id": "red_bull",
-                "constructor_name": "Red Bull", "nationality": "Austrian",
-                "position": "1", "points": "40", "wins": "1",
-            }
+            {"season": "2024", "round": "1", "constructor_id": "red_bull",
+             "constructor_name": "Red Bull", "position": "1", "points": "40", "wins": "1"}
         """
         data = self.call_api(f"/{season}/{round_num}/constructorStandings.json")
         if not data:
@@ -305,10 +261,6 @@ class JolpicaClient:
     def get_round_count(self, season):
         """
         Return the total number of race rounds in a season.
-
-        Derived by counting entries in the race calendar — no extra API call.
-        Used by fetch_and_upload.py to build the full list of rounds when
-        --round is not specified.
 
         Example: get_round_count(2024) → 24
         """

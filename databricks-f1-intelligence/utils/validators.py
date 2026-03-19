@@ -24,14 +24,14 @@ class ValidationResult:
 
     Attributes:
         passed     — True if no hard failures were recorded.
-        failures   — List of failure messages (hard errors that block the write).
-        warnings   — List of warning messages (soft issues logged but not blocking).
-        row_count  — Number of rows in the DataFrame that was validated.
+        failures   — Hard errors that block the write.
+        warnings   — Soft issues logged but not blocking.
+        row_count  — Row count of the validated DataFrame.
 
-    Usage pattern:
+    Usage:
         result = validate_silver_results(df)
-        result.log("silver_race_results")   # always print the summary
-        result.raise_if_failed()            # raise ValueError on hard failures
+        result.log("silver_race_results")
+        result.raise_if_failed()
     """
 
     def __init__(self, passed, failures=None, warnings=None, row_count=0):
@@ -42,14 +42,11 @@ class ValidationResult:
 
     def raise_if_failed(self):
         """
-        Raise ValueError if any hard failures were recorded.
-
-        Called by Silver and Gold notebooks after validation. Bronze notebooks
-        call log() instead and never call this method — Bronze is always soft-fail.
+        Raise ValueError if any hard failures exist.
 
         Example:
             result.raise_if_failed()
-            # → raises ValueError: "Validation FAILED — 480 rows; failures: null driver_id: 2 rows"
+            # → ValueError: "Validation FAILED — 480 rows; failures: null driver_id: 2 rows"
         """
         if not self.passed:
             summary = "; ".join(self.failures)
@@ -57,12 +54,7 @@ class ValidationResult:
 
     def log(self, table_name=""):
         """
-        Print a validation summary and emit warnings/failures to the logger.
-
-        Always prints "Validation PASSED/FAILED — N rows" regardless of outcome.
-        Warnings go to logger.warning; failures go to logger.error. This
-        separation means failures appear as ERROR lines in the Databricks
-        driver log, making them easy to filter in monitoring dashboards.
+        Print validation summary; emit warnings and failures to the logger.
 
         Example output:
             Validation PASSED — 480 rows
@@ -81,17 +73,12 @@ class ValidationResult:
 
 def validate_bronze_f1(df, table_name):
     """
-    Soft-fail Bronze validator: warn on null or empty MERGE key columns.
+    Soft-fail Bronze validator: warns on null/empty MERGE key columns, never blocks ingestion.
 
-    Bronze data is raw and unvalidated by design — we never want a null key
-    to block ingestion. Instead, the warning is logged so the team can
-    investigate the upstream API or Parquet file without stopping the pipeline.
-
-    Example (bronze_race_results, season/round/driver_id as merge keys):
+    Example:
         result = validate_bronze_f1(df, "bronze_race_results")
-        # If 2 rows have driver_id == "" → result.warnings contains:
-        #   "null/empty driver_id: 2 rows"
-        # result.passed is still True — no hard failures are ever set here.
+        # 2 rows with driver_id == "" → result.warnings: ["null/empty driver_id: 2 rows"]
+        # result.passed is always True
     """
     from utils.schema import MERGE_KEYS
     result = ValidationResult(passed=True, row_count=df.count())
@@ -111,20 +98,12 @@ def validate_silver_results(df):
     """
     Hard-fail Silver validator for silver_race_results.
 
-    Failures (block the write, raise ValueError):
-        - Null driver_id, season, or round — these are the MERGE key columns;
-          a null would silently overwrite unrelated rows.
-        - points outside [0, 26] — catches accidental type-cast failures
-          or API anomalies (25 for a win + 1 fastest-lap point = 26 max).
-        - Unknown status_category values not in VALID_STATUS_CATEGORIES.
-
-    Warnings (logged only, write proceeds):
-        - fastest_lap_seconds outside [60, 300] seconds — valid outlier range
-          covers street circuits (Monaco ~75 s) to safety-car laps (~200 s+).
+    Failures: null driver_id/season/round; points outside [0, 26]; unknown status_category.
+    Warnings: fastest_lap_seconds outside [60, 300].
 
     Example:
         result = validate_silver_results(df)
-        result.raise_if_failed()   # raises if any null key or bad points found
+        result.raise_if_failed()
     """
     failures = []
     warnings = []
@@ -159,18 +138,9 @@ def validate_silver_laps(df):
     """
     Hard-fail Silver validator for silver_lap_analysis.
 
-    Failures (block the write):
-        - Null session_key, driver_number, or lap_number — MERGE key columns.
-
-    Warnings (logged only):
-        - lap_duration_seconds outside [50, 300] on non-pit-out laps — covers
-          the fastest circuits (~54 s at Monza) to very slow laps. Pit-out
-          laps are excluded because they legitimately run much slower.
-        - Unexpected compound values not in VALID_COMPOUNDS — catches API
-          changes where new compound names are introduced.
-
-    An empty DataFrame (no new laps in an incremental run) is always valid
-    and returns immediately without hitting the cluster for counts.
+    Failures: null session_key/driver_number/lap_number.
+    Warnings: non-pit-out lap_duration_seconds outside [50, 300]; unexpected compound values.
+    Empty DataFrame is always valid (no new laps in an incremental run).
 
     Example:
         result = validate_silver_laps(df_final_laps)
@@ -216,20 +186,10 @@ def validate_silver_laps(df):
 
 def validate_gold_standings(df, table_name):
     """
-    Hard-fail Gold validator for championship standing tables.
+    Hard-fail Gold validator for championship standing tables (driver and constructor).
 
-    Used for both gold_driver_championship and gold_constructor_championship.
-    The table_name argument is passed through to the log message so the same
-    function produces clearly labelled output for both tables.
-
-    Failures (block the write):
-        - current_position outside [1, 20] — an F1 grid has at most 20 cars;
-          any value outside this range indicates a data processing error.
-        - Duplicate (season, driver_id) or (season, constructor_id) pairs —
-          these are MERGE key columns; a duplicate would cause the MERGE to
-          match multiple target rows, producing non-deterministic results.
-
-    An empty DataFrame is always valid (no new rounds processed this run).
+    Failures: current_position outside [1, 25]; duplicate (season, driver_id/constructor_id).
+    Empty DataFrame is always valid.
 
     Example:
         result = validate_gold_standings(df_driver_champ, "gold_driver_championship")
