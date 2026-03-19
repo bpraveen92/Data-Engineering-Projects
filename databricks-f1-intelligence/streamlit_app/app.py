@@ -15,11 +15,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-CATALOG  = os.getenv("CATALOG",  "f1_intelligence")
-SCHEMA   = os.getenv("SCHEMA",   "f1_prod")
-HOSTNAME = os.getenv("DATABRICKS_SERVER_HOSTNAME", "")
+CATALOG   = os.getenv("CATALOG",  "f1_intelligence")
+SCHEMA    = os.getenv("SCHEMA",   "f1_dev")
+# Databricks Apps auto-injects DATABRICKS_HOST and DATABRICKS_TOKEN for the
+# app service principal. DATABRICKS_HTTP_PATH is set explicitly in app.yaml.
+HOSTNAME  = os.getenv("DATABRICKS_HOST", os.getenv("DATABRICKS_SERVER_HOSTNAME", ""))
 HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH", "")
-TOKEN    = os.getenv("DATABRICKS_TOKEN", "")
+TOKEN     = os.getenv("DATABRICKS_TOKEN", "")
 
 
 @st.cache_resource
