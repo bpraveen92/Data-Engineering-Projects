@@ -2,6 +2,16 @@
 
 End-to-end Formula 1 analytics platform built on Databricks, demonstrating production-grade data engineering patterns including Delta Lake MERGE upserts, Change Data Feed incremental processing, Liquid Clustering, and Delta Time Travel.
 
+## Dashboard
+
+| Home | Championship |
+|---|---|
+| ![Home](docs/screenshots/home.png) | ![Championship](docs/screenshots/championship.png) |
+
+| Tyre Strategy | Circuit Benchmarks |
+|---|---|
+| ![Tyre Strategy](docs/screenshots/tyre_strategy.png) | ![Circuit Benchmarks](docs/screenshots/circuit_benchmarks.png) |
+
 ## Architecture
 
 ```
