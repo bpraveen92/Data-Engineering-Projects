@@ -14,7 +14,6 @@ seasons = run_query(f"SELECT DISTINCT season FROM {table('gold_driver_championsh
 season_list = [r["season"] for r in seasons]
 selected_season = st.sidebar.selectbox("Season", season_list, index=0)
 
-# ── Current standings table ────────────────────────────────────────────────────
 st.subheader("Driver Championship")
 rows = run_query(f"""
     SELECT
@@ -37,7 +36,6 @@ if rows:
 else:
     st.info("No driver championship data available yet.")
 
-# ── Cumulative points progression ──────────────────────────────────────────────
 st.subheader("Points Progression by Round")
 prog = run_query(f"""
     SELECT round, driver_code, points
@@ -63,7 +61,6 @@ if prog:
     fig.update_layout(legend_title_text="Driver", height=450)
     st.plotly_chart(fig, use_container_width=True)
 
-# ── Constructor standings ──────────────────────────────────────────────────────
 st.subheader("Constructor Championship")
 cs = run_query(f"""
     SELECT

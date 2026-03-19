@@ -14,9 +14,6 @@ from delta.tables import DeltaTable
 
 logger = logging.getLogger(__name__)
 
-
-# ── Catalog / Schema ───────────────────────────────────────────────────────────
-
 def get_or_create_catalog_schema(spark, catalog, schema):
     """
     Create catalog and schema if they don't exist, then set them as active.
@@ -34,7 +31,6 @@ def get_or_create_catalog_schema(spark, catalog, schema):
     spark.sql(f"USE SCHEMA `{schema}`")
     logger.info("Using %s.%s", catalog, schema)
 
-
 def table_exists(spark, full_table_name):
     """
     Return True if a Delta table exists in Unity Catalog, False otherwise.
@@ -51,9 +47,6 @@ def table_exists(spark, full_table_name):
     except Exception:
         return False
 
-
-# ── Delta table features ───────────────────────────────────────────────────────
-
 def enable_cdf(spark, full_table_name):
     """
     Enable Delta Change Data Feed on an existing table.
@@ -68,7 +61,6 @@ def enable_cdf(spark, full_table_name):
     )
     logger.info("CDF enabled on %s", full_table_name)
 
-
 def enable_liquid_clustering(spark, full_table_name, cluster_cols):
     """
     Apply Liquid Clustering to an existing Delta table.
@@ -81,9 +73,6 @@ def enable_liquid_clustering(spark, full_table_name, cluster_cols):
     cols = ", ".join(cluster_cols)
     spark.sql(f"ALTER TABLE {full_table_name} CLUSTER BY ({cols})")
     logger.info("Liquid clustering set on %s by (%s)", full_table_name, cols)
-
-
-# ── MERGE / write ──────────────────────────────────────────────────────────────
 
 def merge_delta(spark, df, full_table_name, merge_keys):
     """
@@ -124,7 +113,6 @@ def merge_delta(spark, df, full_table_name, merge_keys):
     )
     logger.info("MERGE complete on %s", full_table_name)
 
-
 def write_delta_append(df, full_table_name):
     """
     Append rows to a Delta table without deduplication.
@@ -136,9 +124,6 @@ def write_delta_append(df, full_table_name):
     df.write.format("delta").mode("append").saveAsTable(full_table_name)
     logger.info("APPEND complete on %s", full_table_name)
 
-
-# ── Table version ──────────────────────────────────────────────────────────────
-
 def get_current_table_version(spark, full_table_name):
     """
     Return the latest commit version number of a Delta table.
@@ -147,9 +132,6 @@ def get_current_table_version(spark, full_table_name):
              → 5  (after 6 commits: initial write + 5 subsequent MERGEs)
     """
     return spark.sql(f"DESCRIBE HISTORY {full_table_name} LIMIT 1").collect()[0]["version"]
-
-
-# ── CDF reads ─────────────────────────────────────────────────────────────────
 
 def read_cdf_changes(spark, full_table_name, from_version):
     """
@@ -170,7 +152,6 @@ def read_cdf_changes(spark, full_table_name, from_version):
         .filter(F.col("_change_type").isin("insert", "update_postimage"))
         .drop("_change_type", "_commit_version", "_commit_timestamp")
     )
-
 
 def read_incremental_or_full(spark, full_table_name, checkpoint_table, pipeline_name):
     """
@@ -203,9 +184,6 @@ def read_incremental_or_full(spark, full_table_name, checkpoint_table, pipeline_
     logger.info("[%s] Incremental CDF read %s v%d → v%d", pipeline_name, full_table_name, last_version + 1, current_version)
     return read_cdf_changes(spark, full_table_name, last_version + 1), current_version
 
-
-# ── Checkpoints ───────────────────────────────────────────────────────────────
-
 def save_checkpoint(spark, checkpoint_table, pipeline_name, processed_version, records_processed):
     """
     Upsert a checkpoint row keyed on pipeline_name.
@@ -225,7 +203,6 @@ def save_checkpoint(spark, checkpoint_table, pipeline_name, processed_version, r
     )
     merge_delta(spark, df, checkpoint_table, ["pipeline_name"])
     logger.info("[%s] Checkpoint saved at version %d (%d records)", pipeline_name, processed_version, records_processed)
-
 
 def get_latest_checkpoint_version(spark, checkpoint_table, pipeline_name):
     """
@@ -247,9 +224,6 @@ def get_latest_checkpoint_version(spark, checkpoint_table, pipeline_name):
     )
     return int(rows[0]["last_processed_version"]) if rows else None
 
-
-# ── Metadata columns ──────────────────────────────────────────────────────────
-
 def add_metadata_columns(df, source):
     """
     Append ingested_at (current timestamp) and source_name columns.
@@ -263,9 +237,6 @@ def add_metadata_columns(df, source):
         .withColumn("ingested_at", F.current_timestamp())
         .withColumn("source_name", F.lit(source))
     )
-
-
-# ── Diagnostics ───────────────────────────────────────────────────────────────
 
 def print_table_stats(spark, full_table_name):
     """

@@ -48,9 +48,6 @@ LOCAL_DATA_DIR    = os.path.join(PROJECT_ROOT, "data")
 PROGRESS_FILE     = os.path.join(LOCAL_DATA_DIR, "fetch_progress.json")
 WORKSPACE_DATA    = "/Workspace/Users/pravbala30@protonmail.com/.bundle/f1-intelligence/dev/f1_data"
 
-
-# ── Progress tracking (resume support) ────────────────────────────────────────
-
 def load_progress():
     """
     Load the fetch progress cache from disk.
@@ -71,12 +68,10 @@ def load_progress():
             return json.load(f)
     return {"jolpica": {}, "openf1": {}}
 
-
 def save_progress(progress):
     """Flush the in-memory progress dict to fetch_progress.json on disk."""
     with open(PROGRESS_FILE, "w") as f:
         json.dump(progress, f, indent=2)
-
 
 def is_done(progress, source, key):
     """
@@ -85,7 +80,6 @@ def is_done(progress, source, key):
     Example: is_done(progress, "jolpica", "2024_r1_results") → True
     """
     return key in progress.get(source, {})
-
 
 def mark_done(progress, source, key, row_count):
     """
@@ -102,9 +96,6 @@ def mark_done(progress, source, key, row_count):
     """
     progress.setdefault(source, {})[key] = row_count
     save_progress(progress)
-
-
-# ── Workspace upload ───────────────────────────────────────────────────────────
 
 def upload_to_workspace(local_path, workspace_path):
     """
@@ -138,7 +129,6 @@ def upload_to_workspace(local_path, workspace_path):
         raise RuntimeError(f"Upload failed for {filename}:\n{result.stderr}")
     logger.info("  Uploaded successfully")
 
-
 def ensure_workspace_dir():
     """
     Create the workspace target directory if it does not already exist.
@@ -154,9 +144,6 @@ def ensure_workspace_dir():
     )
     if result.returncode != 0:
         logger.warning("mkdirs: %s", result.stderr.strip())
-
-
-# ── Jolpica fetch ──────────────────────────────────────────────────────────────
 
 def fetch_jolpica(season, rounds):
     """
@@ -223,9 +210,6 @@ def fetch_jolpica(season, rounds):
         logger.info("  %d constructor standing rows", len(rows))
 
     return {k: pd.DataFrame(v) for k, v in data.items()}
-
-
-# ── OpenF1 fetch ───────────────────────────────────────────────────────────────
 
 def fetch_openf1(season, round_nums, progress, race_schedule):
     """
@@ -325,9 +309,6 @@ def fetch_openf1(season, round_nums, progress, race_schedule):
         "stints": pd.DataFrame(stints_rows) if stints_rows else pd.DataFrame(),
     }
 
-
-# ── Save Parquet + upload ──────────────────────────────────────────────────────
-
 def save_and_upload(df, table_name):
     """
     Write a DataFrame to a local Parquet file and upload it to the workspace.
@@ -351,9 +332,6 @@ def save_and_upload(df, table_name):
     df.to_parquet(local_path, index=False)
     logger.info("Saved %s: %d rows → %s", table_name, len(df), local_path)
     upload_to_workspace(local_path, f"{WORKSPACE_DATA}/{table_name}.parquet")
-
-
-# ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     """
@@ -419,7 +397,6 @@ def main():
 
     logger.info("\nAll done. Files uploaded to %s", WORKSPACE_DATA)
     logger.info("Run the Bronze notebook — it will read from the workspace Parquet files.")
-
 
 if __name__ == "__main__":
     main()
