@@ -1,6 +1,8 @@
 # F1 Intelligence — Databricks Medallion Architecture
 
-End-to-end Formula 1 analytics platform built on Databricks, demonstrating production-grade data engineering patterns including Delta Lake MERGE upserts, Change Data Feed incremental processing, Liquid Clustering, and Delta Time Travel.
+I built this project to demonstrate production-grade data engineering patterns on Databricks — the kind of real-world design decisions that don't show up in beginner tutorials. The dataset is Formula 1 race data, which I chose deliberately because it has genuine upsert scenarios: post-race steward penalties can change a driver's result hours after the race, and championship standings need to update in-place after every round rather than just accumulate new rows.
+
+The pipeline ingests from two public APIs, processes through a Bronze → Silver → Gold medallion architecture, and serves a Streamlit analytics dashboard backed by Unity Catalog.
 
 ## Dashboard
 
@@ -61,27 +63,27 @@ Jolpica-F1 API          OpenF1 API
         └─────────────────────┘
 ```
 
-## Key Technical Concepts Demonstrated
+## Key Patterns Demonstrated
 
-| Concept | Where |
+| Pattern | Where and Why |
 |---|---|
-| **Delta MERGE upserts** | All Bronze tables (idempotency); Gold standings (in-place updates) |
-| **Change Data Feed (CDF)** | Bronze→Silver→Gold incremental reads via checkpoint table |
-| **Liquid Clustering** | All Delta tables clustered by (season, round, driver_id) |
-| **Delta Time Travel** | Gold notebook — query standings `TIMESTAMP AS OF` any race date |
-| **Two-source join** | Silver lap_analysis joins Jolpica race data with OpenF1 telemetry |
-| **Databricks Asset Bundles** | Dev/prod deployment via `databricks.yml` |
-| **Unity Catalog** | Three-level namespace: `f1_intelligence.f1_dev.*` |
+| **Delta MERGE upserts** | Every Bronze table — ensures re-running for the same round never duplicates rows. Gold standings — one row per driver, updated in-place after each round. |
+| **Change Data Feed (CDF)** | Bronze→Silver→Gold incremental reads. Only rows that changed since the last checkpoint are processed, avoiding full table scans on every run. |
+| **Liquid Clustering** | Applied to all Delta tables at creation. Replaces the static `PARTITIONED BY` + `ZORDER BY` pattern with auto-managed clustering on the MERGE keys. |
+| **Delta Time Travel** | Gold notebook queries `gold_driver_championship TIMESTAMP AS OF` a race date to reconstruct standings at any point in the season. |
+| **Two-source join** | `silver_lap_analysis` joins OpenF1 per-lap telemetry with Jolpica driver/team metadata using `race_date` as the bridge key. |
+| **Databricks Asset Bundles** | Full dev/prod deployment config in `databricks.yml`. Resources are namespaced per target to avoid dev/prod collisions. |
+| **Unity Catalog** | Three-level namespace `f1_intelligence.f1_dev.*` with separate dev and prod schemas. |
 
 ## Data Sources
 
-- **[Jolpica-F1 API](https://api.jolpi.ca/ergast/f1/)** — race results, standings, qualifying, pit stops (no auth required)
-- **[OpenF1 API](https://api.openf1.org/)** — lap timing, tyre stints, session weather (no auth for historical)
+- **[Jolpica-F1 API](https://api.jolpi.ca/ergast/f1/)** — race results, standings, qualifying, pit stops. The maintained successor to the Ergast API, no auth required.
+- **[OpenF1 API](https://api.openf1.org/)** — per-lap timing, tyre stints, session weather. Free for historical data (2023+), no auth required.
 
 ## Data Scope
 
-- **2024 season**: 24 races, full historical batch load
-- **2025 season**: round-by-round incremental load (showcases CDF + Gold MERGE)
+- **2024 season**: 24 races, loaded as a full historical batch
+- **2025 season**: loaded round-by-round to demonstrate the incremental CDF path and in-place Gold MERGE updates
 
 ## Quick Start
 
@@ -92,17 +94,17 @@ make install
 # 2. Authenticate with Databricks
 databricks auth login --host https://your-workspace.cloud.databricks.com
 
-# 3. Fetch 2024 season data locally and upload to workspace
+# 3. Fetch 2024 season data locally and upload to the workspace
 make fetch-2024
 
-# 4. Deploy bundle to dev
+# 4. Deploy the bundle to dev
 make deploy-dev
 
-# 5. Run the pipeline
+# 5. Run the pipeline job
 make run-dev
 ```
 
-See [docs/EXECUTION.md](docs/EXECUTION.md) for the complete step-by-step guide.
+See [docs/EXECUTION.md](docs/EXECUTION.md) for the full step-by-step guide including verification queries and the incremental load walkthrough. For a deep-dive into the dashboard pages and the Asset Bundle deployment setup, see [docs/DASHBOARD_AND_DEPLOYMENT.md](docs/DASHBOARD_AND_DEPLOYMENT.md).
 
 ## Project Structure
 
@@ -134,5 +136,6 @@ databricks-f1-intelligence/
 │       └── 04_circuit_benchmarks.py
 └── docs/
     ├── ARCHITECTURE.md
-    └── EXECUTION.md
+    ├── EXECUTION.md
+    └── DASHBOARD_AND_DEPLOYMENT.md
 ```
