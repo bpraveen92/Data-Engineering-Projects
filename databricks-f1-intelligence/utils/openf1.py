@@ -16,6 +16,14 @@ TIMEOUT = 30
 logger = logging.getLogger(__name__)
 
 
+def _s(v, default=""):
+    """Return str(v) unless v is None, in which case return default.
+
+    Prevents str(None) == 'None' from polluting Bronze string columns.
+    """
+    return default if v is None else str(v)
+
+
 class OpenF1Client:
     """
     HTTP client for the OpenF1 REST API (https://openf1.org).
@@ -157,16 +165,16 @@ class OpenF1Client:
             rows.append({
                 "session_key":       str(session_key),
                 "driver_number":     str(driver_number),
-                "lap_number":        str(lap.get("lap_number", "")),
-                "lap_duration":      str(lap.get("lap_duration", "")),
-                "is_pit_out_lap":    str(lap.get("is_pit_out_lap", "")),
-                "date_start":        lap.get("date_start", ""),
-                "duration_sector_1": str(lap.get("duration_sector_1", "")),
-                "duration_sector_2": str(lap.get("duration_sector_2", "")),
-                "duration_sector_3": str(lap.get("duration_sector_3", "")),
-                "i1_speed":          str(lap.get("i1_speed", "")),
-                "i2_speed":          str(lap.get("i2_speed", "")),
-                "st_speed":          str(lap.get("st_speed", "")),
+                "lap_number":        _s(lap.get("lap_number")),
+                "lap_duration":      _s(lap.get("lap_duration")),
+                "is_pit_out_lap":    _s(lap.get("is_pit_out_lap")),
+                "date_start":        lap.get("date_start") or "",
+                "duration_sector_1": _s(lap.get("duration_sector_1")),
+                "duration_sector_2": _s(lap.get("duration_sector_2")),
+                "duration_sector_3": _s(lap.get("duration_sector_3")),
+                "i1_speed":          _s(lap.get("i1_speed")),
+                "i2_speed":          _s(lap.get("i2_speed")),
+                "st_speed":          _s(lap.get("st_speed")),
             })
         return rows
 
@@ -192,12 +200,12 @@ class OpenF1Client:
         for s in results:
             rows.append({
                 "session_key":       str(session_key),
-                "driver_number":     str(s.get("driver_number", "")),
-                "stint_number":      str(s.get("stint_number", "")),
-                "lap_start":         str(s.get("lap_start", "")),
-                "lap_end":           str(s.get("lap_end", "")),
-                "compound":          s.get("compound", ""),
-                "tyre_age_at_start": str(s.get("tyre_age_at_start", "")),
+                "driver_number":     _s(s.get("driver_number")),
+                "stint_number":      _s(s.get("stint_number")),
+                "lap_start":         _s(s.get("lap_start")),
+                "lap_end":           _s(s.get("lap_end")),
+                "compound":          s.get("compound") or "",
+                "tyre_age_at_start": _s(s.get("tyre_age_at_start")),
             })
         return rows
 
