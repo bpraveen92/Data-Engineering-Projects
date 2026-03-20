@@ -62,7 +62,7 @@ ecommerce_data/
 make deploy-dev
 ```
 
-This builds the Python wheel and deploys the DAB bundle to the dev workspace target.
+This deploys the DAB bundle to the dev workspace target.
 The DLT pipeline `dev Ecommerce DLT Pipeline` will appear in the Databricks Pipelines UI.
 
 ## Step 2 — Run the Pipeline (Round 1 only)
@@ -154,9 +154,10 @@ databricks bundle run ecommerce_dlt_pipeline \
   --target dev
 ```
 
-The `read_source()` helper in `02_silver.py` and `03_gold.py` detects this value via
+The `read_source()` helper in `02_silver.py` detects this value via
 `spark.conf.get("pipeline.mode")` and switches from `dlt.read_stream()` to `dlt.read()`
-so all Silver and Gold tables are rebuilt from the complete Bronze dataset.
+so all Silver tables are rebuilt from the complete Bronze dataset. Gold tables always use
+`dlt.read()` and are re-aggregated automatically.
 
 ## Validate Bundle Configuration
 

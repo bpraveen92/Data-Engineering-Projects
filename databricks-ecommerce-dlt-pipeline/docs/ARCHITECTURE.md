@@ -78,11 +78,14 @@ for status in order_statuses:
         return dlt.read_stream("bronze_order_events").filter(F.col("order_status") == status)
 ```
 
-### If-Else Pipeline Mode Branching (02_silver.py, 03_gold.py)
+### If-Else Pipeline Mode Branching (02_silver.py)
 
 `pipeline.mode` is set in `databricks.yml` per target and can be overridden at runtime.
-A single `read_source()` helper centralises the branching so no individual table definition
-needs its own if-else:
+A single `read_source()` helper in `02_silver.py` centralises the branching for the three
+straightforward Silver tables (`silver_order_items`, `silver_order_payments`,
+`silver_order_reviews`). SCD tables use `dlt.apply_changes()` which manages its own
+incremental state. Gold always uses `dlt.read()` — re-aggregating from the full Silver
+dataset on each run is simpler and correct at that layer.
 
 ```python
 pipeline_mode = spark.conf.get("pipeline.mode", "incremental")
@@ -123,11 +126,11 @@ unnecessary history rows.
 
 ```
 Round 1 (initial load)
-  generate_and_upload.py → 6 JSON table directories → pipeline run
+  data/ecommerce_data/ → upload round_1/ to workspace → pipeline run
   → 6 Bronze tables, 8 Silver tables (incl. SCD base rows), 3 Gold tables
 
 Round 2 (first incremental)
-  generate_and_upload.py → new JSON files (new orders + CDC events) → pipeline run
+  Upload round_2/ files to workspace → pipeline run
   → Bronze auto-picks up new files via cloudFiles
   → silver_product_price_history grows new history rows (price changes)
   → silver_customer_address_history grows new history rows (relocations)
@@ -153,14 +156,28 @@ All table references inside pipeline notebooks use unqualified names (e.g., `bro
 ```
 databricks-ecommerce-dlt-pipeline/
 ├── databricks.yml                  # DAB bundle: catalog, schema, pipeline_mode per target
-├── pyproject.toml                  # ruff config, dev dependencies
-├── Makefile                        # install, lint, fmt, validate, deploy-dev/prod
+├── pyproject.toml                  # dev dependencies (pytest, databricks-sdk)
+├── Makefile                        # install, clean, validate, deploy-dev/prod, run-dev, test
 ├── pipeline/
 │   ├── 01_bronze.py                # cloudFiles ingestion + for-loop status views + inline schemas
 │   ├── 02_silver.py                # transformations + APPLY CHANGES INTO (SCD 1+2 pairs)
-│   └── 03_gold.py                  # aggregations + if-else on pipeline.mode
+│   └── 03_gold.py                  # aggregations + batch reads at Gold layer
 ├── data/
-│   └── ecommerce_data/                  # Pre-prepared JSON dataset (committed, 3 rounds × 6 tables)
+│   └── ecommerce_data/             # Pre-prepared JSON dataset (committed, 3 rounds × 6 tables)
+│       ├── order_events/
+│       │   ├── round_1/data.json
+│       │   ├── round_2/data.json
+│       │   └── round_3/data.json
+│       ├── order_items/            # same round_1/2/3 structure
+│       ├── order_payments/         # same round_1/2/3 structure
+│       ├── order_reviews/          # same round_1/2/3 structure
+│       ├── product_updates/        # same round_1/2/3 structure
+│       └── customer_updates/       # same round_1/2/3 structure
+├── tests/
+│   ├── conftest.py                 # shared fixtures: WorkspaceClient, SQL execution helper
+│   ├── test_bronze.py              # 11 data quality tests (row counts, nulls, domain values)
+│   ├── test_silver.py              # 18 tests (SCD1/SCD2 correctness, no duplicates, join logic)
+│   └── test_gold.py                # 15 tests (aggregation accuracy, positive revenue, no duplicates)
 ├── resources/
 │   └── ecommerce_dlt.pipeline.yml  # DLT pipeline DAB resource definition
 └── docs/

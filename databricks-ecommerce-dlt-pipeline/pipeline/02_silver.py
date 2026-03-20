@@ -37,7 +37,7 @@ import dlt
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, IntegerType, TimestampType
 
-# pipeline.mode drives streaming vs batch reads throughout Silver and Gold.
+# pipeline.mode drives streaming vs batch reads for Silver tables (via read_source()).
 # full_refresh: re-read all Bronze data (use for backfills / schema changes).
 # incremental: read only new Bronze rows since the last pipeline run (default).
 pipeline_mode = spark.conf.get("pipeline.mode", "incremental")

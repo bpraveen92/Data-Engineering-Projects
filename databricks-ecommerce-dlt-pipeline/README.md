@@ -13,7 +13,7 @@ custom validator classes) is replaced by a DLT built-in.
 | Pattern | Where |
 |---|---|
 | For-loop `@dlt.view` generation | `pipeline/01_bronze.py` |
-| If-else on `pipeline.mode` via `read_source()` | `pipeline/02_silver.py`, `pipeline/03_gold.py` |
+| If-else on `pipeline.mode` via `read_source()` | `pipeline/02_silver.py` |
 | All three expectation severity levels | Bronze (`@dlt.expect`), Silver (`@dlt.expect_or_drop`), Gold (`@dlt.expect_or_fail`) |
 | SCD Type 1 with `APPLY CHANGES INTO` | `silver_products`, `silver_customers` |
 | SCD Type 2 with `track_history_column_list` | `silver_product_price_history`, `silver_customer_address_history` |
