@@ -196,18 +196,14 @@ All table references inside pipeline notebooks use unqualified names (e.g., `bro
 ```
 databricks-ecommerce-dlt-pipeline/
 ├── databricks.yml                  # DAB bundle: catalog, schema, pipeline_mode per target
-├── pyproject.toml                  # hatchling build, ruff config
-├── Makefile                        # install, validate, deploy-dev/prod, generate-round, upload-round
-├── utils/
-│   ├── __init__.py
-│   └── schema.py                   # StructType definitions for all 6 source formats
-│                                   # No helpers.py, no validators.py — DLT replaces both
+├── pyproject.toml                  # ruff config, dev dependencies
+├── Makefile                        # install, lint, fmt, validate, deploy-dev/prod
 ├── pipeline/
-│   ├── 01_bronze.py                # cloudFiles ingestion + for-loop status views
+│   ├── 01_bronze.py                # cloudFiles ingestion + for-loop status views + inline schemas
 │   ├── 02_silver.py                # transformations + APPLY CHANGES INTO (SCD 1+2 pairs)
 │   └── 03_gold.py                  # aggregations + if-else on pipeline.mode
-├── scripts/
-│   └── generate_and_upload.py      # Olist load, event explosion, 3-round split, upload
+├── data/
+│   └── processed/                  # Pre-prepared JSON dataset (committed, 3 rounds × 6 tables)
 ├── resources/
 │   └── ecommerce_dlt.pipeline.yml  # DLT pipeline DAB resource definition
 └── docs/

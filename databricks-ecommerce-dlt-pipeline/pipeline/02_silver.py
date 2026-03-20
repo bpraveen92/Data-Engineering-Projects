@@ -1,3 +1,4 @@
+# Databricks notebook source
 """
 02_silver.py — Silver layer transformations using Delta Live Tables.
 

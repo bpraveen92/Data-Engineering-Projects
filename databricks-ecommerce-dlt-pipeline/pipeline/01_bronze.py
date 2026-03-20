@@ -1,3 +1,4 @@
+# Databricks notebook source
 """
 01_bronze.py — Bronze layer ingestion using Delta Live Tables.
 
@@ -33,15 +34,76 @@ Source file layout (uploaded by scripts/generate_and_upload.py):
 
 import dlt
 from pyspark.sql import functions as F
-from pyspark.sql.types import DoubleType, IntegerType, TimestampType
+from pyspark.sql.types import (
+    DoubleType,
+    IntegerType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
+)
 
-from utils.schema import (
-    CUSTOMER_UPDATES_SCHEMA,
-    ORDER_EVENTS_SCHEMA,
-    ORDER_ITEMS_SCHEMA,
-    ORDER_PAYMENTS_SCHEMA,
-    ORDER_REVIEWS_SCHEMA,
-    PRODUCT_UPDATES_SCHEMA,
+ORDER_EVENTS_SCHEMA = StructType(
+    [
+        StructField("order_id", StringType(), False),
+        StructField("customer_id", StringType(), False),
+        StructField("order_status", StringType(), False),
+        StructField("event_timestamp", TimestampType(), False),
+        StructField("estimated_delivery_date", TimestampType(), True),
+    ]
+)
+
+ORDER_ITEMS_SCHEMA = StructType(
+    [
+        StructField("order_id", StringType(), False),
+        StructField("order_item_id", IntegerType(), False),
+        StructField("product_id", StringType(), False),
+        StructField("seller_id", StringType(), False),
+        StructField("price", DoubleType(), False),
+        StructField("freight_value", DoubleType(), False),
+    ]
+)
+
+ORDER_PAYMENTS_SCHEMA = StructType(
+    [
+        StructField("order_id", StringType(), False),
+        StructField("payment_sequential", IntegerType(), False),
+        StructField("payment_type", StringType(), False),
+        StructField("payment_installments", IntegerType(), False),
+        StructField("payment_value", DoubleType(), False),
+    ]
+)
+
+ORDER_REVIEWS_SCHEMA = StructType(
+    [
+        StructField("order_id", StringType(), False),
+        StructField("review_id", StringType(), False),
+        StructField("review_score", IntegerType(), False),
+        StructField("review_creation_date", TimestampType(), True),
+    ]
+)
+
+PRODUCT_UPDATES_SCHEMA = StructType(
+    [
+        StructField("product_id", StringType(), False),
+        StructField("product_category", StringType(), True),
+        StructField("product_name_length", IntegerType(), True),
+        StructField("product_description_length", IntegerType(), True),
+        StructField("product_photos_qty", IntegerType(), True),
+        StructField("price", DoubleType(), False),
+        StructField("discount_pct", DoubleType(), True),
+        StructField("updated_at", TimestampType(), False),
+    ]
+)
+
+CUSTOMER_UPDATES_SCHEMA = StructType(
+    [
+        StructField("customer_id", StringType(), False),
+        StructField("customer_zip", StringType(), True),
+        StructField("customer_city", StringType(), True),
+        StructField("customer_state", StringType(), True),
+        StructField("updated_at", TimestampType(), False),
+    ]
 )
 
 # Workspace path where generate_and_upload.py deposits the JSON files.

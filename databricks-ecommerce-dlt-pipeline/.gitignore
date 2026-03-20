@@ -1,10 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-dist/
 .venv/
-.pytest_cache/
 
 # Databricks
 .databricks/

@@ -1,4 +1,4 @@
-.PHONY: install build lint fmt clean validate deploy-dev deploy-prod run-dev
+.PHONY: install lint fmt clean validate deploy-dev deploy-prod run-dev
 
 UV         := uv
 DATABRICKS := databricks
@@ -6,25 +6,22 @@ DATABRICKS := databricks
 install:
 	$(UV) pip install -e ".[dev]"
 
-build:
-	$(UV) build --wheel
-
 lint:
-	$(UV) run ruff check utils/ pipeline/
+	$(UV) run ruff check pipeline/
 
 fmt:
-	$(UV) run ruff format utils/ pipeline/
+	$(UV) run ruff format pipeline/
 
 clean:
-	rm -rf dist/ *.egg-info/ __pycache__ .pytest_cache
+	rm -rf __pycache__ .pytest_cache
 
 validate:
 	$(DATABRICKS) bundle validate --target dev
 
-deploy-dev: build
+deploy-dev:
 	$(DATABRICKS) bundle deploy --target dev
 
-deploy-prod: build
+deploy-prod:
 	$(DATABRICKS) bundle deploy --target prod
 
 run-dev:

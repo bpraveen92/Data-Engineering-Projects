@@ -1,0 +1,8 @@
+# Exclude pre-prepared dataset — upload manually to the workspace
+# These files are large and are not part of the deployable bundle
+data/
+dist/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.venv/

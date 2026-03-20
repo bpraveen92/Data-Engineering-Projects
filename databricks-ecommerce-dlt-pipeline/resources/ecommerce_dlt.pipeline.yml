@@ -8,6 +8,9 @@ resources:
       catalog: ${var.catalog}
       target: ${var.schema}
 
+      # Community Edition requires serverless compute for DLT pipelines.
+      serverless: true
+
       # pipeline.mode is read inside 02_silver.py and 03_gold.py via spark.conf.get().
       # incremental: process only new data since the last run (default for all targets).
       # full_refresh: re-process all Bronze data from scratch (use for backfills).
@@ -20,8 +23,8 @@ resources:
       # so that table names referenced by dlt.read_stream() are already registered.
       libraries:
         - notebook:
-            path: ./pipeline/01_bronze.py
+            path: ../pipeline/01_bronze.py
         - notebook:
-            path: ./pipeline/02_silver.py
+            path: ../pipeline/02_silver.py
         - notebook:
-            path: ./pipeline/03_gold.py
+            path: ../pipeline/03_gold.py

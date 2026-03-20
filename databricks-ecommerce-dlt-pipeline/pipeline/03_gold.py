@@ -1,3 +1,4 @@
+# Databricks notebook source
 """
 03_gold.py — Gold layer aggregations using Delta Live Tables.
 
