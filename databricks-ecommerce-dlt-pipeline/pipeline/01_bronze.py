@@ -23,7 +23,7 @@ v_orders_delivered, v_orders_canceled) are non-materialized — DLT
 evaluates them inline and does not write a separate Delta table for each.
 They feed directly into silver_order_lifecycle in 02_silver.py.
 
-Source file layout (uploaded by scripts/generate_and_upload.py):
+Source file layout (pre-prepared in data/ecommerce_data/, uploaded manually to workspace):
   ecommerce_data/order_events/round_{N}/data.json
   ecommerce_data/order_items/round_{N}/data.json
   ecommerce_data/order_payments/round_{N}/data.json
@@ -106,7 +106,7 @@ CUSTOMER_UPDATES_SCHEMA = StructType(
     ]
 )
 
-# Workspace path where generate_and_upload.py deposits the JSON files.
+# Workspace path where the JSON files are uploaded manually before each pipeline run.
 # cloudFiles (Auto Loader) monitors this path and picks up new round_N
 # subdirectories automatically on each pipeline run.
 data_root = spark.conf.get(
