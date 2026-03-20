@@ -24,19 +24,26 @@ Results land as partitioned Parquet in MinIO (local) or S3 (production), queryab
 
 ## Architecture
 
-```
-Kinesis Stream
-    │
-    ▼
-spark_aggregator.py  (PySpark Structured Streaming)
-    ├── broadcast join → songs.csv
-    ├── broadcast join → users.csv
-    └── 5-min windowed aggregations (1-min watermark)
-         ├── hourly_streams/
-         ├── top_tracks_hourly/
-         └── country_metrics_hourly/
-                  │
-            S3 / MinIO — Parquet, partitioned by window_start
+```mermaid
+flowchart TD
+    K["Kinesis Stream\nmusic-streams"]
+    D1[("songs.csv")]
+    D2[("users.csv")]
+    SP["spark_aggregator.py\nPySpark Structured Streaming\n5-min windows · 1-min watermark"]
+    O1[("hourly_streams/\nstream counts per track + country")]
+    O2[("top_tracks_hourly/\ntracks ranked by play count")]
+    O3[("country_metrics_hourly/\nunique users + tracks per country")]
+    S3["S3 / MinIO\nParquet · partitioned by window_start"]
+
+    K --> SP
+    D1 -->|"broadcast join"| SP
+    D2 -->|"broadcast join"| SP
+    SP --> O1
+    SP --> O2
+    SP --> O3
+    O1 --> S3
+    O2 --> S3
+    O3 --> S3
 ```
 
 One script, two deployment modes — only `--trigger-mode` changes:

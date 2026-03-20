@@ -74,64 +74,39 @@ Airflow with Python transforms fits the data volume (hundreds of thousands of ro
 
 ### System Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      SOURCE LAYER (S3 Raw)                       │
-├──────────────────────────────────────────────────────────────────┤
-│  s3://<bucket>/Project-1/raw/                                    │
-│  ├─ songs.csv           (new files auto-detected)                │
-│  ├─ users.csv                                                     │
-│  └─ streams_*.csv       (partitioned by date)                    │
-└────────────────┬─────────────────────────────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                    ORCHESTRATION LAYER                           │
-│                  (Airflow DAG - 8 Tasks)                         │
-├──────────────────────────────────────────────────────────────────┤
-│  1. find_pending_files      → List raw files not yet processed   │
-│  2. should_run              → Skip if no new files detected      │
-│  3. build_run_context       → Prepare execution metadata         │
-│  4. run_transform           → CSV → Parquet normalization        │
-│  5. run_quality_checks      → Great Expectations validation      │
-│  6. load_to_redshift        → Staging + upsert to silver layer  │
-│  7. build_gold_layer        → Refresh BI aggregations           │
-│  8. mark_files_processed    → Update processed file manifest    │
-└────────────────┬─────────────────────────────────────────────────┘
-                 │
-         ┌───────┼───────┐
-         │       │       │
-         ▼       ▼       ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                   PROCESSING LAYER (S3 Curated)                  │
-├──────────────────────────────────────────────────────────────────┤
-│  s3://<bucket>/music/curated/                                    │
-│  ├─ songs/run_id=20250122_143000/                               │
-│  │  └─ data.parquet (normalized, deduplicated)                  │
-│  ├─ users/run_id=20250122_143000/                               │
-│  └─ streams/run_id=20250122_143000/                             │
-│                                                                   │
-│  s3://<bucket>/music/schemas/                                    │
-│  └─ processed_raw_files.json (processed manifest)                │
-└────────────────┬─────────────────────────────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                  WAREHOUSE LAYER (Redshift)                      │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  SILVER Schema (Deduplicated Source)                             │
-│  ├─ silver.songs     (PK: track_id)    - deduplicated source     │
-│  ├─ silver.users     (PK: user_id)     - deduplicated source     │
-│  ├─ silver.streams   (PK: stream_event_id)  - deduplicated       │
-│  └─ silver.pipeline_audit  - append-only run history             │
-│                                                                   │
-│  GOLD Schema (BI-Ready)                                          │
-│  ├─ gold.daily_stream_metrics        - streams per date/country │
-│  ├─ gold.top_tracks_daily            - top 100 tracks daily    │
-│  └─ gold.country_streams_daily       - country-level summary    │
-│                                                                   │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph SRC ["S3 Raw"]
+        direction LR
+        F1["songs.csv"]
+        F2["users.csv"]
+        F3["streams_*.csv\npartitioned by date"]
+    end
+
+    subgraph DAG ["Airflow DAG — 8 Tasks"]
+        direction LR
+        T1["1. find_pending_files\n2. should_run\n3. build_run_context"]
+        T2["4. run_transform\n5. run_quality_checks\n6. load_to_redshift"]
+        T3["7. build_gold_layer\n8. mark_files_processed"]
+        T1 --> T2 --> T3
+    end
+
+    subgraph CUR ["S3 Curated"]
+        direction LR
+        C1["songs · users · streams\nrun_id=.../data.parquet"]
+        C2["schemas/\nprocessed_raw_files.json\nprocessed manifest"]
+    end
+
+    subgraph RS ["Redshift Serverless"]
+        direction LR
+        SIL["Silver\nsilver.songs · silver.users\nsilver.streams · silver.pipeline_audit"]
+        GLD["Gold\ngold.daily_stream_metrics\ngold.top_tracks_daily\ngold.country_streams_daily"]
+        SIL --> GLD
+    end
+
+    SRC --> DAG
+    DAG --> CUR
+    CUR --> RS
 ```
 
 # Key Design Patterns

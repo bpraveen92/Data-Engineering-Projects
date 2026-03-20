@@ -8,63 +8,42 @@ The pipeline follows the medallion architecture (Bronze → Silver → Gold) and
 
 ## Data Flow
 
-```
-Jolpica-F1 API          OpenF1 API
-(results, standings,    (lap timing, tyre
- qualifying, pit stops)  stints, weather)
-        │                      │
-        ▼                      ▼
-   scripts/fetch_and_upload.py  (runs locally)
-   • Fetches per-round, per-driver
-   • Saves Parquet to data/
-   • Uploads via `databricks workspace import --format RAW`
-   • Resume-safe: fetch_progress.json tracks completed calls
-        │
-        ▼
-   Workspace Parquet files
-   /Workspace/Users/.../.bundle/f1-intelligence/dev/f1_data/
-        │
-        ▼
-┌─────────────────────────────────────────────────────────────┐
-│  BRONZE  (Delta, MERGE, CDF-enabled, Liquid Clustered)       │
-│                                                              │
-│  bronze_race_schedule     bronze_laps                        │
-│  bronze_race_results      bronze_stints                      │
-│  bronze_qualifying                                           │
-│  bronze_pit_stops                                            │
-│  bronze_driver_standings                                     │
-│  bronze_constructor_standings                                │
-└───────────────────────┬─────────────────────────────────────┘
-                        │ CDF incremental reads
-                        │ (checkpoint: bronze_to_silver_results
-                        │              bronze_to_silver_laps)
-┌───────────────────────▼─────────────────────────────────────┐
-│  SILVER  (typed, enriched, joined, validated)                │
-│                                                              │
-│  silver_race_results      (Jolpica + schedule join)          │
-│  silver_qualifying        (Q-time parsing, gap-to-pole)      │
-│  silver_driver_standings  (position_change via LAG)          │
-│  silver_constructor_standings  (points_gap_to_leader)        │
-│  silver_lap_analysis      (OpenF1 × Jolpica race_date join)  │
-└───────────────────────┬─────────────────────────────────────┘
-                        │ CDF incremental reads
-                        │ (checkpoint: silver_to_gold)
-┌───────────────────────▼─────────────────────────────────────┐
-│  GOLD  (analytics-ready, genuine MERGE upserts)              │
-│                                                              │
-│  gold_driver_championship     ← MERGE (season, driver_id)   │
-│  gold_constructor_championship ← MERGE (season, constr_id)  │
-│  gold_circuit_benchmarks      ← MERGE (circuit_id)          │
-│  gold_tyre_strategy_report    ← APPEND per race             │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-             ┌──────────▼──────────┐
-             │  Streamlit Dashboard │
-             │  • Championship      │
-             │  • Race Results      │
-             │  • Tyre Strategy     │
-             │  • Circuit Records   │
-             └─────────────────────┘
+```mermaid
+flowchart TD
+    J[("Jolpica-F1 API\nresults · standings\nqualifying · pit stops")]
+    O[("OpenF1 API\nlap timing · stints\nweather")]
+    F["fetch_and_upload.py\nruns locally · resume-safe\nfetch_progress.json tracks completed calls"]
+    P[("Workspace Parquet files\n/.bundle/f1-intelligence/dev/f1_data/")]
+
+    subgraph BRONZE ["BRONZE — Delta · MERGE · CDF · Liquid Clustered"]
+        direction LR
+        B1["bronze_race_schedule · bronze_race_results\nbronze_qualifying · bronze_pit_stops"]
+        B2["bronze_driver_standings · bronze_constructor_standings\nbronze_laps · bronze_stints"]
+    end
+
+    subgraph SILVER ["SILVER — typed · enriched · joined · validated"]
+        direction LR
+        S1["silver_race_results · silver_qualifying\nsilver_driver_standings · silver_constructor_standings"]
+        S2["silver_lap_analysis\nOpenF1 × Jolpica join on race_date"]
+    end
+
+    subgraph GOLD ["GOLD — analytics-ready · MERGE upserts"]
+        direction LR
+        G1["gold_driver_championship\nMERGE on season, driver_id"]
+        G2["gold_constructor_championship\nMERGE on season, constructor_id"]
+        G3["gold_circuit_benchmarks\nMERGE on circuit_id"]
+        G4["gold_tyre_strategy_report\nAPPEND per race"]
+    end
+
+    D["Streamlit Dashboard\nChampionship · Race Results · Tyre Strategy · Circuit Records"]
+
+    J --> F
+    O --> F
+    F --> P
+    P --> BRONZE
+    BRONZE -->|"CDF · checkpoint: bronze_to_silver_results\n               bronze_to_silver_laps"| SILVER
+    SILVER -->|"CDF · checkpoint: silver_to_gold"| GOLD
+    GOLD --> D
 ```
 
 ## Key Technical Patterns

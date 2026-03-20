@@ -12,21 +12,34 @@ The pipeline ingests these events from separate Kinesis streams, joins them thro
 
 ## Architecture
 
-```
-trip_start.csv ──► trip-start-stream ──► Lambda (trip_start) ─┐
-                                                                ├──► DynamoDB: trip_lifecycle
-trip_end.csv ───► trip-end-stream ────► Lambda (trip_end) ────┘         │
-                                                               S3: staging/completed_trips/
-                                                               (partitioned by dropoff hour)
-                                                                         │
-                                                               EventBridge (hourly schedule)
-                                                                         │
-                                                               Glue: glue_trip_aggregator
-                                                               (incremental, checkpoint-aware)
-                                                                         │
-                                                               S3: aggregations/hourly_zone_metrics/
-                                                                         │
-                                                               Glue Crawler ──► Athena
+```mermaid
+flowchart TD
+    TS[("trip_start.csv")]
+    TE[("trip_end.csv")]
+    KS["Kinesis\ntrip-start-stream"]
+    KE["Kinesis\ntrip-end-stream"]
+    LS["Lambda\nlambda_trip_start"]
+    LE["Lambda\nlambda_trip_end"]
+    DY[("DynamoDB\ntrip_lifecycle\nstateful join store")]
+    S3S[("S3 staging\ncompleted_trips/\npartitioned by dropoff hour")]
+    EB["EventBridge\nhourly schedule"]
+    GL["Glue\nglue_trip_aggregator\nincremental · checkpoint-aware"]
+    S3A[("S3\nhourly_zone_metrics/")]
+    CR["Glue Crawler"]
+    AT["Athena"]
+
+    TS --> KS
+    TE --> KE
+    KS --> LS
+    KE --> LE
+    LS -->|"upsert start state"| DY
+    LE -->|"read + complete join"| DY
+    LE -->|"write completed trip"| S3S
+    S3S --> EB
+    EB --> GL
+    GL --> S3A
+    S3A --> CR
+    CR --> AT
 ```
 
 ---
