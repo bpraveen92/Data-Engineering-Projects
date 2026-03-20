@@ -1,8 +1,8 @@
 # AWS Deployment (Manual Console Setup)
 
-I set up AWS resources manually via the Console for this project — no IaC, no CLI scripting for resource creation. I kept it this way intentionally: it forces me to understand exactly what each resource does, and it keeps the project focused on the pipeline logic rather than infrastructure tooling.
+AWS resources are set up manually via the Console — no IaC. This keeps the focus on pipeline logic rather than infrastructure tooling.
 
-Before touching AWS, I always run a full local cycle first:
+Before touching AWS, run a full local cycle first:
 ```bash
 make up && make docker-all && make down
 ```

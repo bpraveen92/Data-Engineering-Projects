@@ -105,7 +105,6 @@ INFO  Local incremental aggregation completed summary={
 INFO  Local pipeline completed. Output path=/workspace/output/aggregations
 ```
 
-A few things worth noting here:
 - `failed=531` on trip_end is expected — those rows in `trip_end.csv` have missing required fields (rate_code, etc.)
 - `staged_completed_trips=4468` means 4468 completed trips passed validation and were written to S3 staging
 - `affected_hours=25` means Glue rewrote 25 hour partitions this run

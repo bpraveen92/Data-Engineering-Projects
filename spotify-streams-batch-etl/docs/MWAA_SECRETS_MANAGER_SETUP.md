@@ -2,12 +2,10 @@
 
 ## Overview
 
-This guide explains how I configured AWS Secrets Manager to provide environment variables to my MWAA-deployed S3-to-Redshift pipeline. The pipeline uses a clever hybrid approach:
+This guide explains the AWS Secrets Manager setup for the MWAA-deployed S3-to-Redshift pipeline. The pipeline uses a hybrid config approach:
 
-1. **Local Development**: Reads from `.env` file (no AWS calls, super fast)
+1. **Local Development**: Reads from `.env` file (no AWS calls)
 2. **MWAA Deployment**: Falls back to AWS Secrets Manager (when `.env` isn't available)
-
-This way, I can work efficiently locally without hitting AWS APIs, and the production environment stays secure with centralized config management.
 
 ---
 
@@ -57,7 +55,7 @@ Before you get started, make sure you have:
 
 ### Configuration Key-Value Pairs
 
-Here's the JSON I use as the secret value:
+Secret value JSON:
 
 ```json
 {
@@ -137,9 +135,7 @@ python3 -c "from src.common.config import env; print(env('S3_RAW_BUCKET'))"
 
 ### Understand the Caching Strategy
 
-I implemented a 5-minute cache for Secrets Manager lookups to handle a realistic production scenario: **files arriving continuously and unpredictably in S3**. With the DAG running every 15 minutes and potentially multiple data ingestion windows, I wanted to avoid hammering the Secrets Manager API on every task—especially when the configuration rarely changes.
-
-Here's how it works in practice:
+A 5-minute cache for Secrets Manager lookups prevents repeated API calls across DAG tasks within the same scheduling window. How it works:
 - **First DAG run**: Secrets Manager is queried once, credentials are cached (~50-100ms API call)
 - **Subsequent runs within 5 minutes**: Configuration served from cache (~1ms, zero API calls)
 - **After cache expires**: Fresh API call fetches latest secrets (handles config updates gracefully)

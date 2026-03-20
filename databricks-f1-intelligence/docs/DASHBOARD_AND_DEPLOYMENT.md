@@ -149,7 +149,7 @@ The job chains three notebook tasks with strict dependency ordering:
 bronze_ingestion → silver_transformation → gold_aggregation
 ```
 
-If Bronze fails, Silver and Gold don't run. This is intentional — there's no point processing Silver if the underlying Bronze rows haven't been updated yet.
+If Bronze fails, Silver and Gold don't run — there's no point processing Silver if the underlying Bronze rows haven't been updated yet.
 
 All three tasks share the same set of parameters defined at the job level:
 
@@ -221,4 +221,4 @@ export SCHEMA=f1_dev
 streamlit run app.py
 ```
 
-The app connects to the same Gold tables in the workspace — it doesn't need a local Spark session or any local data files. This makes local development straightforward: run the pipeline on Databricks once, then iterate on the dashboard UI locally against the live tables.
+The app connects to the same Gold tables in the workspace — it doesn't need a local Spark session or any local data files. Run the pipeline on Databricks once, then iterate on the dashboard UI locally against the live tables.
