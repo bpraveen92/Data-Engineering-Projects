@@ -2,7 +2,7 @@
 
 ## Overview
 
-F1 Intelligence is an end-to-end data pipeline and analytics platform for Formula 1 data, built on Databricks. I'm a huge fan of the sport, but beyond that, Formula 1 is a great domain for this project because the data has genuine update scenarios — not just inserts. Post-race steward penalties alter results hours after a race ends, championship standings get recomputed after every round, and circuit all-time records are conditionally overwritten when a faster lap is set. These are the cases where you actually need Delta MERGE rather than just appending rows, and I wanted a project that demonstrates the difference concretely.
+F1 Intelligence is an end-to-end data pipeline and analytics platform for Formula 1 data, built on Databricks. I'm a huge fan of the sport, but beyond that, Formula 1 is a great domain for this project because the data has genuine update scenarios — not just inserts. Post-race steward penalties alter results hours after a race ends, championship standings get recomputed after every round, and circuit all-time records are conditionally overwritten when a faster lap is set. These are the cases where Delta MERGE is the right tool — the pipeline has to handle updates to existing rows, not just new inserts.
 
 The pipeline follows the medallion architecture (Bronze → Silver → Gold) and is deployed via Databricks Asset Bundles with a Unity Catalog-backed namespace.
 
@@ -102,7 +102,7 @@ Cluster columns are chosen to match the MERGE predicate, so Delta can skip irrel
 - Gold championships: `(season, driver_id)` or `(season, constructor_id)`
 - Gold circuit benchmarks: `(circuit_id)`
 
-At the data volumes in this project (~500 race result rows, ~26k lap rows), Liquid Clustering is more of a pattern demonstration than a performance necessity. The real benefit would show at scale — hundreds of seasons or sub-lap telemetry at full granularity.
+At the data volumes here (~500 race result rows, ~26k lap rows), the clustering benefit is marginal. The real payoff comes at scale — hundreds of seasons or sub-lap telemetry at full granularity.
 
 ### 4. Delta Time Travel
 
@@ -119,7 +119,7 @@ ORDER BY current_position;
 
 I prefer `TIMESTAMP AS OF` over `VERSION AS OF` because it's robust to re-runs. If I re-run the pipeline for the same round, that creates an extra Delta version — breaking any assumption that version number equals round number. The timestamp stays stable regardless of how many times the pipeline runs.
 
-One nuance worth calling out: `gold_driver_championship` stores the current state only (one row per driver per season). For per-round progression charts in the Streamlit dashboard, I query `silver_driver_standings` instead, which has one row per driver per round.
+`gold_driver_championship` stores the current state only (one row per driver per season). For per-round progression charts in the Streamlit dashboard, I query `silver_driver_standings` instead, which has one row per driver per round.
 
 ### 5. Two-Source Join at Silver
 

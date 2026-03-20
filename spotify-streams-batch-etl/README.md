@@ -45,9 +45,9 @@ Music streaming data is a great real-world example because:
 
 ## Problem Statement
 
-I designed this pipeline to tackle a realistic production scenario: multiple CSV datasets arriving continuously in S3, each with slightly different schemas and quirky data quality issues. I wanted to build something that felt like a real operational system, so I synthesized some datasets (songs, users, streams) and created a scalable, idempotent solution around them.
+The pipeline handles multiple CSV datasets arriving continuously in S3 — each with slightly different schemas and data quality issues — and loads them into Redshift Serverless on a 15-minute schedule. The dataset is synthesized (songs, users, streams) to model a realistic operational system.
 
-Here's what I was solving for:
+Requirements:
 
 1. **Automatic file detection**: Discover newly arrived CSV files in S3 without me having to babysit it
 2. **Data standardization**: Normalize column names, data types, and schemas across different datasets (`songs`, `users`, `streams`)
@@ -56,7 +56,7 @@ Here's what I was solving for:
 5. **BI-ready aggregations**: Build and maintain summary tables that dashboards can query directly
 6. **Environment parity**: Run the exact same code locally in Docker and in production on AWS MWAA without any changes
 
-The pipeline runs every 15 minutes. I intentionally kept it simple enough to understand while still being production-grade—balancing practicality with reliability and the ability to scale.
+The pipeline runs every 15 minutes on an Airflow schedule.
 
 ---
 
@@ -64,21 +64,13 @@ The pipeline runs every 15 minutes. I intentionally kept it simple enough to und
 
 ### Why This Approach?
 
-I looked at three different ways to build this and landed on Airflow with Python transforms. Here's why:
+| Approach | Complexity | Local Testing | Scalability | Chosen |
+|----------|-----------|---------------|-------------|--------|
+| **Airflow + Python** | Low | Excellent | Good | ✅ Yes |
+| Glue PySpark + Airflow | High | Difficult | Excellent | ❌ No |
+| Lambda-based orchestration | Medium | Limited | Fair | ❌ No |
 
-| Approach | Complexity | Time-to-Market | Local Testing | Scalability | **I Chose** |
-|----------|-----------|----------------|---------------|-------------|---------|
-| **Airflow + Python** | Low | Fast | Excellent | Good | ✅ Yes |
-| Glue PySpark + Airflow | High | Slow | Difficult | Excellent | ❌ No |
-| Lambda-based orchestration | Medium | Medium | Limited | Fair | ❌ No |
-
-**Here's my reasoning:**
-
-- **Simplicity**: Airflow DAGs are straightforward to write, easy to test, and don't require deep operational knowledge
-- **Speed**: Using Python + pandas got me moving fast—Spark and Glue felt like overkill for the data volume (hundreds of thousands of rows)
-- **Visibility**: Airflow's UI gives me task-level insights, automatic retries, and alerting out of the box
-- **Local development**: Docker Compose lets me replicate the production MWAA environment locally, so I can test with confidence
-- **Cost**: No serverless function cold starts or Glue provisioning overhead to worry about
+Airflow with Python transforms fits the data volume (hundreds of thousands of rows) without the operational overhead of Glue or the orchestration limitations of Lambda. Docker Compose gives full local parity with MWAA so the same code runs in both environments unchanged.
 
 ### System Architecture
 

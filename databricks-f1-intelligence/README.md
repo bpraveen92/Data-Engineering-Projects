@@ -1,6 +1,6 @@
 # F1 Intelligence — Databricks Medallion Architecture
 
-I built this project to demonstrate production-grade data engineering patterns on Databricks — the kind of real-world design decisions that are easy to overlook. The dataset is Formula 1 race data, which I chose deliberately because it has genuine upsert scenarios: post-race steward penalties can change a driver's result hours after the race, and championship standings need to update in-place after every round rather than just accumulate new rows.
+This project ingests Formula 1 race data from two public APIs and processes it through a Bronze → Silver → Gold medallion architecture on Databricks. The domain has genuine upsert scenarios: post-race steward penalties can change a driver's result hours after the race, and championship standings need to update in-place after every round rather than just accumulate new rows.
 
 The pipeline ingests from two public APIs, processes through a Bronze → Silver → Gold medallion architecture, and serves a Streamlit analytics dashboard backed by Unity Catalog.
 

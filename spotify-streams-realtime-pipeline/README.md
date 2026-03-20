@@ -1,8 +1,6 @@
 # Spotify Streams: Real-Time Analytics Pipeline (Kinesis and Spark)
 
-This is a continuation of the Spotify Streams batch pipeline — same music streaming dataset, but now simulating what happens when the data arrives as a live stream rather than batch CSV files dropping into S3. The question I wanted to answer was: how does the architecture change when you need windowed aggregations in near real-time instead of on a schedule?
-
-The answer is a PySpark Structured Streaming pipeline that reads live music events from Kinesis, joins them with song/user metadata, and writes windowed aggregations to S3 as Parquet. Runs entirely in Docker locally using LocalStack and MinIO — no AWS account needed to test.
+A continuation of the Spotify Streams batch pipeline using the same music streaming dataset, redesigned for stream-based processing. A PySpark Structured Streaming job reads live music events from Kinesis, joins them with song/user metadata, and writes 5-minute windowed aggregations to S3 as Parquet. Runs entirely in Docker locally using LocalStack and MinIO — no AWS account needed to test.
 
 **Stack**: PySpark 3.5 · Kinesis · Parquet on S3  
 **Local testing**: Docker (Spark + LocalStack + MinIO)  

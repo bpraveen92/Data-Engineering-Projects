@@ -1,10 +1,10 @@
 # Ride-Sharing Trip Lifecycle Pipeline (Kinesis, Lambda, and Glue)
 
-I built this to model a real-world problem I kept running into: two independent event streams that represent the start and end of the same thing — a taxi trip — arriving at different times, out of order, and needing to be reliably joined before any analytics can happen.
+This pipeline handles a stateful stream join problem: two independent event streams representing the start and end of a taxi trip, arriving at different times and out of order, need to be reliably joined before any analytics can happen.
 
 **The dataset** is a synthetic NYC-style ride-sharing dataset — 4,999 trip start events and 4,999 trip end events spread across a single day (2024-05-25). `trip_start` events carry the pickup location, estimated dropoff zone, and estimated fare. `trip_end` events carry the actual dropoff time, distance, fare, and tip. The two sides share only a `trip_id`.
 
-**What I'm trying to simulate here -** is a ride-sharing platform where trip lifecycle events are produced by two separate backend services — a dispatch service fires `trip_start` when a driver accepts a ride, and a billing service fires `trip_end` when the ride closes out. In production these would be independent Kinesis producers with no coordination between them. Events arrive out of order: a `trip_end` can arrive before its `trip_start` (driver app lag, network retry), and the gap between the two events can range from minutes to hours. The pipeline has to handle all of this without dropping trips or double-counting them in the hourly aggregates.
+The scenario models a ride-sharing platform where trip lifecycle events are produced by two separate backend services — a dispatch service fires `trip_start` when a driver accepts a ride, and a billing service fires `trip_end` when the ride closes out. In production these would be independent Kinesis producers with no coordination between them. Events arrive out of order: a `trip_end` can arrive before its `trip_start` (driver app lag, network retry), and the gap between the two events can range from minutes to hours. The pipeline has to handle all of this without dropping trips or double-counting them in the hourly aggregates.
 
 The pipeline ingests these events from separate Kinesis streams, joins them through DynamoDB, stages completed trips in S3, and runs hourly Glue aggregations to produce partitioned Parquet output queryable through Athena.
 
@@ -107,7 +107,7 @@ event_hour           pickup_location_id  dropoff_location_id  trip_count  fare_s
 The two streams arrive independently and out of order. There's no guarantee `trip_start` comes before `trip_end`. I needed a fast, key-value store to hold partial state — DynamoDB with `trip_id` as the partition key is the natural fit. Each Lambda just reads the existing item and upserts.
 
 **Why not have Glue scan DynamoDB directly?**
-My first version did this. The problem is that every Glue run would do a full DynamoDB table scan — expensive, slow, and it grows unboundedly. I switched to having `lambda_trip_end` write compact completed-trip events directly to S3 staging partitioned by `dropoff_datetime` hour. Now Glue only reads the new files it hasn't seen yet.
+Every Glue run would do a full DynamoDB table scan — expensive, slow, and it grows unboundedly as trip volume increases. Instead, `lambda_trip_end` writes completed-trip events directly to S3 staging partitioned by `dropoff_datetime` hour. Glue only reads the new files it hasn't seen yet.
 
 **Why stage by `dropoff_datetime` hour, not Lambda invocation time?**
 The S3 partition key is derived from the trip's `dropoff_datetime`, not from when Lambda ran. A trip with `dropoff_datetime=13:45` that Lambda processes at 14:25 lands in `staging/.../hour=13/`, not `hour=14/`. This keeps the staging partition aligned with the output partition — Glue groups by `date_trunc('hour', dropoff_datetime)`, so a late-arriving trip always folds into the correct hour aggregate regardless of when Lambda wrote its file.
