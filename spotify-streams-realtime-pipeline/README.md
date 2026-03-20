@@ -163,6 +163,64 @@ make down
 
 ---
 
+## Docker Setup
+
+Three containers, one network.
+
+**`etl-project-2-localstack`** mocks Kinesis at `http://localhost:4566`. The Spark container waits on LocalStack's healthcheck before starting.
+
+**`etl-project-2-minio`** mocks S3 at `http://localhost:9000`. Parquet output lands here instead of real S3 during local runs.
+
+**`etl-project-2-spark`** is the PySpark runtime, built from the project Dockerfile.
+
+**Dockerfile line by line:**
+
+```dockerfile
+FROM apache/spark:3.5.0-python3
+```
+Official Apache Spark image with Python 3. Includes the JVM, Spark binaries, and PySpark — no manual Java or Spark installation needed.
+
+```dockerfile
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+```
+`PYTHONDONTWRITEBYTECODE` stops Python from writing `.pyc` files into the container filesystem. `PYTHONUNBUFFERED` flushes stdout/stderr immediately — without this, log output only appears after the script finishes, making debugging inside Docker much harder.
+
+```dockerfile
+USER root
+RUN pip install --no-cache-dir \
+    boto3==1.26.137 \
+    python-dotenv==1.0.0 \
+    pyarrow==11.0.0
+```
+Additional packages installed as root. `boto3` handles MinIO/S3 API calls; `pyarrow` is the Parquet engine used by Spark. Pinned to exact versions to match the connector JARs.
+
+```dockerfile
+RUN mkdir -p /home/spark/.ivy2/cache && \
+    chown -R spark:spark /home/spark/.ivy2
+```
+Spark resolves JARs at runtime via Ivy. Without this, the `spark` user can't write to the Ivy cache and JAR resolution fails at startup.
+
+```dockerfile
+COPY scripts/ /opt/spark/scripts/
+COPY src/ /opt/spark/src/
+COPY jars/ /opt/spark/jars/
+```
+Bakes the PySpark job, utilities, and connector JARs into the image. The JARs are pre-built locally (see Quick Start) — they're not downloaded at runtime.
+
+```dockerfile
+USER spark
+ENV PYTHONPATH="/opt/spark/src:/opt/spark/scripts:$PYTHONPATH"
+```
+Drops privileges back to the non-root `spark` user. `PYTHONPATH` makes the `utils/` module importable without packaging.
+
+```dockerfile
+CMD ["tail", "-f", "/dev/null"]
+```
+Keeps the container running. The PySpark job is launched explicitly via `make consumer` — the container is just the execution environment.
+
+---
+
 ## Design Choices
 
 **Broadcast joins** — songs and users are small static tables; broadcasting them avoids any shuffle on the streaming side.

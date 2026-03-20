@@ -351,6 +351,32 @@ For comprehensive testing guidance, see **[EXECUTION.md](docs/EXECUTION.md)** se
 make down    # Stops containers
 ```
 
+**Dockerfile (`airflow/Dockerfile`) line by line:**
+
+```dockerfile
+FROM apache/airflow:2.9.3-python3.11
+```
+Official Airflow image with Python 3.11. Includes Airflow, its scheduler, webserver, and all core operators — no manual installation needed.
+
+```dockerfile
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+```
+`PYTHONDONTWRITEBYTECODE` stops Python from writing `.pyc` files into the container. `PYTHONUNBUFFERED` flushes stdout/stderr immediately so Airflow task logs appear in real time rather than after the task completes.
+
+```dockerfile
+USER root
+RUN apt-get install -y --no-install-recommends build-essential
+USER airflow
+```
+`build-essential` provides the C compiler needed by some Python packages at install time (packages with C extensions). Switched back to the `airflow` user before pip install — Airflow's image intentionally runs as non-root in production.
+
+```dockerfile
+COPY requirements-airflow.txt /requirements-airflow.txt
+RUN pip install --no-cache-dir -r /requirements-airflow.txt
+```
+Project-specific packages installed into the Airflow image. `requirements-airflow.txt` is copied before any project code so Docker caches the pip layer — rebuilds are fast as long as the file doesn't change.
+
 ---
 
 ### 2. Production Deployment to AWS MWAA

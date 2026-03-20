@@ -1,5 +1,8 @@
 FROM apache/spark:3.5.0-python3
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /opt/spark
 
 # Install additional Python packages as root
