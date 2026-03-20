@@ -7,16 +7,11 @@ All Gold tables use @dlt.expect_or_fail — a data quality violation here
 means something went wrong upstream, and failing fast is safer than
 silently writing corrupt analytics data.
 
-If-else: pipeline.mode
-----------------------
-The same read_source() helper from Silver is reproduced here. In Gold the
-branching matters because:
-  - full_refresh re-aggregates every Silver row from scratch (safe for backfill)
-  - incremental only processes Silver rows added since the last pipeline run
-    (DLT manages the watermarking and state internally)
-
-The pipeline.mode value is set in databricks.yml per target (dev/prod) and
-can be overridden at runtime via the pipeline configuration UI or CLI.
+Gold tables always use dlt.read() (batch). Silver already handles
+incremental ingestion — Gold only needs to re-aggregate the full Silver
+dataset on each run. Streaming aggregations on joined DataFrames require
+watermarks on every input, which adds complexity without benefit at this
+layer.
 
 Gold tables
 -----------
@@ -27,21 +22,7 @@ Gold tables
 
 import dlt
 from pyspark.sql import functions as F
-from pyspark.sql.types import DoubleType, IntegerType
-
-pipeline_mode = spark.conf.get("pipeline.mode", "incremental")  # noqa: F821
-
-
-def read_source(table_name):
-    """
-    Return a streaming or batch reader depending on pipeline.mode.
-    full_refresh re-reads all Silver data; incremental reads only new rows.
-    Centralising this logic here avoids repeating the if-else in every
-    Gold table definition.
-    """
-    if pipeline_mode == "full_refresh":
-        return dlt.read(table_name)
-    return dlt.read_stream(table_name)
+from pyspark.sql.types import IntegerType
 
 
 # Gold: gold_order_fulfillment
@@ -66,14 +47,14 @@ def read_source(table_name):
 @dlt.expect_or_fail("non_null_customer_id", "customer_id IS NOT NULL")
 @dlt.expect_or_fail("valid_total_order_value", "total_order_value > 0")
 def gold_order_fulfillment():
-    lifecycle = read_source("silver_order_lifecycle").filter(
+    lifecycle = dlt.read("silver_order_lifecycle").filter(
         F.col("final_status").isNotNull()
     )
 
     # Aggregate payments: sum all installments to get the total order value
     # and identify the primary payment method (sequential = 1)
     payments = (
-        read_source("silver_order_payments")
+        dlt.read("silver_order_payments")
         .groupBy("order_id")
         .agg(
             F.sum("payment_value").alias("total_order_value"),
@@ -86,7 +67,7 @@ def gold_order_fulfillment():
 
     # Take the most recent review per order (some orders have multiple review rows)
     reviews = (
-        read_source("silver_order_reviews")
+        dlt.read("silver_order_reviews")
         .groupBy("order_id")
         .agg(
             F.max("review_score").alias("review_score"),
@@ -96,7 +77,7 @@ def gold_order_fulfillment():
 
     return (
         lifecycle
-        .join(payments, on="order_id", how="left")
+        .join(payments, on="order_id", how="inner")
         .join(reviews, on="order_id", how="left")
         .select(
             "order_id",
@@ -136,16 +117,16 @@ def gold_order_fulfillment():
 @dlt.expect_or_fail("non_null_seller_id", "seller_id IS NOT NULL")
 @dlt.expect_or_fail("non_negative_total_revenue", "total_revenue >= 0")
 def gold_seller_performance():
-    items = read_source("silver_order_items")
+    items = dlt.read("silver_order_items")
 
     lifecycle = (
-        read_source("silver_order_lifecycle")
+        dlt.read("silver_order_lifecycle")
         .select("order_id", "delivery_days", "is_late_delivery", "final_status")
         .filter(F.col("final_status") == "delivered")
     )
 
     reviews = (
-        read_source("silver_order_reviews")
+        dlt.read("silver_order_reviews")
         .groupBy("order_id")
         .agg(F.avg("review_score").alias("avg_review_score"))
     )
@@ -201,14 +182,12 @@ def gold_seller_performance():
 @dlt.expect_or_fail("non_null_order_month", "order_month IS NOT NULL")
 @dlt.expect_or_fail("valid_total_revenue", "total_revenue > 0")
 def gold_category_revenue():
-    items = read_source("silver_order_items")
+    items = dlt.read("silver_order_items")
 
-    # silver_products is a SCD Type 1 table — use dlt.read() (batch) regardless
-    # of pipeline.mode because SCD Type 1 targets do not support read_stream().
     products = dlt.read("silver_products").select("product_id", "product_category")
 
     lifecycle = (
-        read_source("silver_order_lifecycle")
+        dlt.read("silver_order_lifecycle")
         .filter(F.col("final_status") == "delivered")
         .select(
             "order_id",

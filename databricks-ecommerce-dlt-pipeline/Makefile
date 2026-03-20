@@ -1,4 +1,4 @@
-.PHONY: install lint fmt clean validate deploy-dev deploy-prod run-dev
+.PHONY: install lint fmt clean validate deploy-dev deploy-prod run-dev test
 
 UV         := uv
 DATABRICKS := databricks
@@ -26,3 +26,6 @@ deploy-prod:
 
 run-dev:
 	$(DATABRICKS) bundle run ecommerce_dlt_pipeline --target dev
+
+test:
+	$(UV) run pytest tests/ -v

@@ -75,30 +75,40 @@ def read_source(table_name):
 def silver_order_lifecycle():
     created = (
         dlt.read_stream("v_orders_created")
-        .withWatermark("event_timestamp", "90 days")
         .select(
             F.col("order_id"),
             F.col("customer_id"),
             F.col("event_timestamp").alias("created_at"),
             F.col("estimated_delivery_date"),
         )
+        .withWatermark("created_at", "90 days")
     )
 
     terminal = (
         dlt.read_stream("bronze_order_events")
         .filter(F.col("order_status").isin("delivered", "canceled"))
-        .withWatermark("event_timestamp", "90 days")
         .select(
             F.col("order_id"),
             F.col("order_status").alias("final_status"),
             F.col("event_timestamp").alias("final_event_at"),
         )
+        .withWatermark("final_event_at", "90 days")
     )
 
-    joined = created.join(terminal, on="order_id", how="left")
+    # Stream-stream left outer join requires both watermarks AND an explicit time
+    # range condition bounding the gap between the two sides. Without the range
+    # condition Spark cannot determine when it is safe to emit a NULL right-side
+    # row for an unmatched created event.
+    joined = created.join(
+        terminal,
+        (created["order_id"] == terminal["order_id"])
+        & (terminal["final_event_at"] >= created["created_at"])
+        & (terminal["final_event_at"] <= created["created_at"] + F.expr("INTERVAL 90 DAYS")),
+        how="left",
+    )
 
     return joined.select(
-        "order_id",
+        created["order_id"],
         "customer_id",
         "created_at",
         "final_status",
