@@ -8,7 +8,7 @@
 
 ## Dataset
 
-The JSON source files are pre-prepared and committed under `data/processed/`. They represent the
+The JSON source files are pre-prepared and committed under `data/ecommerce_data/`. They represent the
 Olist Brazilian E-Commerce dataset split into three incremental rounds:
 
 | Round | Date Range | Orders | CDC Events |
@@ -23,7 +23,7 @@ workspace file browser:
 1. Open your Databricks workspace → **Workspace** (left sidebar)
 2. Navigate to (create the path if it does not exist):
    `/Workspace/Users/pravbala30@protonmail.com/.bundle/ecommerce-dlt/dev/ecommerce_data/`
-3. For each table directory under `data/processed/`, create matching subfolders and upload the
+3. For each table directory under `data/ecommerce_data/`, create matching subfolders and upload the
    `data.json` files maintaining the `<table>/round_N/` structure.
 
 The final workspace structure should be:

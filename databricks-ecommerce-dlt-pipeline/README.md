@@ -33,7 +33,7 @@ custom validator classes) is replaced by a DLT built-in.
 
 ## Dataset
 
-The source data is pre-prepared and committed under `data/processed/`. It represents the Olist
+The source data is pre-prepared and committed under `data/ecommerce_data/`. It represents the Olist
 dataset split into three incremental rounds by `order_purchase_timestamp`:
 
 - **Round 1** (Sep 2016 – Dec 2017) — initial load: ~60k orders, base product catalog, customer profiles
@@ -47,7 +47,7 @@ lets you observe incremental SCD Type 2 history accumulation step-by-step.
 ## Architecture
 
 ```
-data/processed/          cloudFiles         DLT Pipeline
+data/ecommerce_data/          cloudFiles         DLT Pipeline
   order_events/     →  bronze_order_events  →  v_orders_{status} (×5, for-loop)  →  silver_order_lifecycle
   order_items/      →  bronze_order_items                                          →  silver_order_items
   order_payments/   →  bronze_order_payments                                       →  silver_order_payments
@@ -72,7 +72,7 @@ databricks-ecommerce-dlt-pipeline/
 │   ├── 02_silver.py                # transformations + APPLY CHANGES INTO (SCD 1+2 pairs)
 │   └── 03_gold.py                  # aggregations + if-else on pipeline.mode
 ├── data/
-│   └── processed/                  # Pre-prepared JSON dataset (committed)
+│   └── ecommerce_data/                  # Pre-prepared JSON dataset (committed)
 │       ├── round_1/
 │       ├── round_2/
 │       └── round_3/

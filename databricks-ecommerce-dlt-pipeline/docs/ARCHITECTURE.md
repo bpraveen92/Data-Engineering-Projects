@@ -203,7 +203,7 @@ databricks-ecommerce-dlt-pipeline/
 │   ├── 02_silver.py                # transformations + APPLY CHANGES INTO (SCD 1+2 pairs)
 │   └── 03_gold.py                  # aggregations + if-else on pipeline.mode
 ├── data/
-│   └── processed/                  # Pre-prepared JSON dataset (committed, 3 rounds × 6 tables)
+│   └── ecommerce_data/                  # Pre-prepared JSON dataset (committed, 3 rounds × 6 tables)
 ├── resources/
 │   └── ecommerce_dlt.pipeline.yml  # DLT pipeline DAB resource definition
 └── docs/
