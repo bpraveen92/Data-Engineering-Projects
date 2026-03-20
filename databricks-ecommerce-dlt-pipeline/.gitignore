@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+.pytest_cache/
+
+# Databricks
+.databricks/
+.bundle/
+
+# Raw Olist CSVs — large, download separately from Kaggle, do not commit
+data/raw/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

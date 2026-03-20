@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ecommerce-dlt"
+version = "0.1.0"
+description = "E-Commerce DLT Pipeline: Declarative Delta Live Tables on Olist Brazilian E-Commerce data"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.1",
+    "databricks-connect>=15.4,<15.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["utils"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
