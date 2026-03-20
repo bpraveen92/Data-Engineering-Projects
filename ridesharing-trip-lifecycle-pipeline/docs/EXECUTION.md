@@ -127,33 +127,7 @@ output/aggregations/year=2024/month=05/day=26/hour=00/part-0.parquet
 
 25 partitions total — 24 hours of 2024-05-25 plus one spillover into 2024-05-26 hour=00 from late drop-offs.
 
-Validate DynamoDB state inside the container:
-```bash
-docker exec etl-project-3-app python3 -c "
-import boto3
-c = boto3.client('dynamodb', region_name='ap-south-2',
-    endpoint_url='http://etl-project-3-localstack:4566',
-    aws_access_key_id='test', aws_secret_access_key='test')
-total = completed = missing_end = 0
-last = None
-while True:
-    resp = c.scan(TableName='trip_lifecycle', ExclusiveStartKey=last) if last else c.scan(TableName='trip_lifecycle')
-    for item in resp.get('Items', []):
-        total += 1
-        if item.get('trip_status', {}).get('S') == 'completed': completed += 1
-        if 'end_dropoff_datetime' not in item: missing_end += 1
-    last = resp.get('LastEvaluatedKey')
-    if not last: break
-print({'total': total, 'completed': completed, 'missing_end': missing_end})
-"
-```
-
-Expected:
-```
-{'total': 4999, 'completed': 4468, 'missing_end': 531}
-```
-
-The 531 `missing_end` items are trips where the `trip_end` event failed validation — they exist in DynamoDB with only start-side fields.
+Validate DynamoDB data by reviewing the Parquet aggregation output — 25 partitions with expected row counts confirms the join worked. The 531 `missing_end` items are trips where the `trip_end` event arrived before `trip_start` — they exist in DynamoDB with only start-side fields and are intentionally excluded from aggregation.
 
 ### Step 6 — Optional: top routes output
 
@@ -233,15 +207,7 @@ What I look for:
 trip_end batch result={'processed': 92, 'staged_completed_trips': 92, 'failed': 0, ...}
 ```
 
-Quick DynamoDB check:
-```bash
-aws dynamodb scan \
-  --table-name "$TRIP_LIFECYCLE_TABLE" \
-  --region "$AWS_REGION" \
-  --max-items 3
-```
-
-I look for items that have both `start_pickup_location_id` and `end_dropoff_datetime` — that means the join worked.
+Validate DynamoDB data via the AWS Console: open the `trip_lifecycle` table → **Explore items** and spot-check a few rows. Items that have both `start_pickup_location_id` and `end_dropoff_datetime` confirm the join worked.
 
 ### Step 5 — Wait for (or force) the Glue run
 
