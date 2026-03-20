@@ -109,7 +109,7 @@ CUSTOMER_UPDATES_SCHEMA = StructType(
 # Workspace path where generate_and_upload.py deposits the JSON files.
 # cloudFiles (Auto Loader) monitors this path and picks up new round_N
 # subdirectories automatically on each pipeline run.
-data_root = spark.conf.get(  # noqa: F821 — spark is injected by the DLT runtime
+data_root = spark.conf.get(
     "ecommerce.data_root",
     "/Workspace/Users/pravbala30@protonmail.com/.bundle/ecommerce-dlt/dev/ecommerce_data",
 )
@@ -119,7 +119,7 @@ def cloudfiles_source(table_name, schema):
     """Return a streaming cloudFiles reader for a given table subdirectory."""
     path = f"{data_root}/{table_name}/"
     return (
-        spark.readStream  # noqa: F821
+        spark.readStream
         .format("cloudFiles")
         .option("cloudFiles.format", "json")
         .option("cloudFiles.inferColumnTypes", "false")

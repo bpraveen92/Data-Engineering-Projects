@@ -1,16 +1,10 @@
-.PHONY: install lint fmt clean validate deploy-dev deploy-prod run-dev test
+.PHONY: install clean validate deploy-dev deploy-prod run-dev test
 
 UV         := uv
 DATABRICKS := databricks
 
 install:
 	$(UV) pip install -e ".[dev]"
-
-lint:
-	$(UV) run ruff check pipeline/
-
-fmt:
-	$(UV) run ruff format pipeline/
 
 clean:
 	rm -rf __pycache__ .pytest_cache

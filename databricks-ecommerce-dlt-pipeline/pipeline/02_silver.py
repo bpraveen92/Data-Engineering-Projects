@@ -40,7 +40,7 @@ from pyspark.sql.types import DoubleType, IntegerType, TimestampType
 # pipeline.mode drives streaming vs batch reads throughout Silver and Gold.
 # full_refresh: re-read all Bronze data (use for backfills / schema changes).
 # incremental: read only new Bronze rows since the last pipeline run (default).
-pipeline_mode = spark.conf.get("pipeline.mode", "incremental")  # noqa: F821
+pipeline_mode = spark.conf.get("pipeline.mode", "incremental")
 
 
 def read_source(table_name):
