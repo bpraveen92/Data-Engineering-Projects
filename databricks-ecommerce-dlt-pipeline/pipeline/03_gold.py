@@ -3,21 +3,11 @@
 03_gold.py — Gold layer aggregations using Delta Live Tables.
 
 Reads from Silver tables and produces analytics-ready aggregations.
-All Gold tables use @dlt.expect_or_fail — a data quality violation here
-means something went wrong upstream, and failing fast is safer than
-silently writing corrupt analytics data.
+All Gold tables use @dlt.expect_or_fail and dlt.read() (batch).
 
-Gold tables always use dlt.read() (batch). Silver already handles
-incremental ingestion — Gold only needs to re-aggregate the full Silver
-dataset on each run. Streaming aggregations on joined DataFrames require
-watermarks on every input, which adds complexity without benefit at this
-layer.
-
-Gold tables
------------
-  gold_order_fulfillment      — one row per completed order; delivery KPIs
-  gold_seller_performance     — one row per seller; aggregated across all orders
-  gold_category_revenue       — one row per product category per month
+  gold_order_fulfillment  — one row per completed order; delivery KPIs
+  gold_seller_performance — one row per seller; aggregated across all orders
+  gold_category_revenue   — one row per product category per month
 """
 
 import dlt
@@ -26,14 +16,6 @@ from pyspark.sql.types import IntegerType
 
 
 # Gold: gold_order_fulfillment
-#
-# One row per completed order. Joins the order lifecycle (delivery timing)
-# with payments (total order value and payment method) and reviews (customer
-# satisfaction score). LEFT JOINs are used for payments and reviews because
-# not every order has both — excluding them would undercount completed orders.
-#
-# is_late_delivery is carried forward from silver_order_lifecycle where it
-# was computed against estimated_delivery_date.
 @dlt.table(
     name="gold_order_fulfillment",
     comment=(
@@ -51,8 +33,6 @@ def gold_order_fulfillment():
         F.col("final_status").isNotNull()
     )
 
-    # Aggregate payments: sum all installments to get the total order value
-    # and identify the primary payment method (sequential = 1)
     payments = (
         dlt.read("silver_order_payments")
         .groupBy("order_id")
@@ -65,7 +45,6 @@ def gold_order_fulfillment():
         )
     )
 
-    # Take the most recent review per order (some orders have multiple review rows)
     reviews = (
         dlt.read("silver_order_reviews")
         .groupBy("order_id")
@@ -97,14 +76,6 @@ def gold_order_fulfillment():
 
 
 # Gold: gold_seller_performance
-#
-# One row per seller. Aggregates across all orders fulfilled by that seller.
-# DLT handles the incremental update — on each pipeline run only new
-# silver_order_items rows are processed and the aggregation state is updated.
-#
-# Joins with silver_order_lifecycle to get delivery_days and is_late_delivery,
-# and with silver_order_reviews to get average review score per seller.
-# seller_id is carried from silver_order_items (each line item has a seller).
 @dlt.table(
     name="gold_seller_performance",
     comment=(
@@ -157,18 +128,7 @@ def gold_seller_performance():
 
 
 # Gold: gold_category_revenue
-#
-# Revenue and order volume aggregated per product category per calendar month.
-# Joins silver_order_items (which carries product_id and price) with
-# silver_products (SCD Type 1 — current category for each product) and
-# silver_order_lifecycle (to get the order creation month and filter to
-# delivered orders only).
-#
-# Using silver_products (SCD Type 1) for category lookup is intentional:
-# we want to report revenue under the product's current category, not the
-# category it had at the time of sale. If you need historical category
-# attribution, join to silver_product_price_history instead using __START_AT
-# and __END_AT to find the category active at order creation time.
+# Category is resolved from silver_products (SCD1 — current category per product).
 @dlt.table(
     name="gold_category_revenue",
     comment=(

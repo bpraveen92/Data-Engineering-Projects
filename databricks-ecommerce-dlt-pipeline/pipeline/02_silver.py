@@ -3,64 +3,31 @@
 02_silver.py — Silver layer transformations using Delta Live Tables.
 
 Reads from Bronze tables, applies type casting, business logic enrichment,
-and data quality gates. Writes clean, typed Silver tables.
+and data quality gates. Expectations use @dlt.expect_or_drop.
 
-Two pairs of SCD tables are produced via dlt.apply_changes():
+SCD tables via dlt.apply_changes():
+  bronze_product_updates  → silver_products (SCD1) + silver_product_price_history (SCD2)
+  bronze_customer_updates → silver_customers (SCD1) + silver_customer_address_history (SCD2)
 
-  Products (source: bronze_product_updates)
-    silver_products              — SCD Type 1: current product state (latest wins)
-    silver_product_price_history — SCD Type 2: full price change audit trail
-
-  Customers (source: bronze_customer_updates)
-    silver_customers                  — SCD Type 1: current address (latest wins)
-    silver_customer_address_history   — SCD Type 2: relocation history
-
-Both SCD Type 1 and SCD Type 2 targets are produced from the same source
-stream. dlt.create_streaming_table() is required as a prerequisite
-declaration before each dlt.apply_changes() call — DLT needs this to
-register the target table before the CDC feed is wired up.
-
-If-else: pipeline.mode
-----------------------
-The pipeline.mode configuration value controls whether Silver tables read
-from Bronze using dlt.read_stream() (incremental — default) or dlt.read()
-(full_refresh — re-processes all Bronze data from scratch). This is
-centralised in the read_source() helper so the branching logic does not
-need to be repeated in every table definition.
-
-Data quality expectations at Silver use @dlt.expect_or_drop — rows that
-fail the predicate are silently removed rather than failing the pipeline.
-Invalid rows at Silver would otherwise propagate incorrect data into Gold.
+read_source() switches between dlt.read_stream() (incremental) and dlt.read()
+(full_refresh) based on pipeline.mode.
 """
 
 import dlt
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, IntegerType, TimestampType
 
-# pipeline.mode drives streaming vs batch reads for Silver tables (via read_source()).
-# full_refresh: re-read all Bronze data (use for backfills / schema changes).
-# incremental: read only new Bronze rows since the last pipeline run (default).
 pipeline_mode = spark.conf.get("pipeline.mode", "incremental")
 
 
 def read_source(table_name):
-    """
-    Return a streaming or batch reader for the given Bronze table name,
-    depending on the pipeline.mode configuration value.
-    dlt.read_stream() is used for normal incremental runs.
-    dlt.read() is used when pipeline.mode=full_refresh to reprocess everything.
-    """
+    """Return a streaming or batch reader depending on pipeline.mode."""
     if pipeline_mode == "full_refresh":
         return dlt.read(table_name)
     return dlt.read_stream(table_name)
 
 
 # Silver: silver_order_lifecycle
-#
-# Joins the v_orders_created view with the first terminal event per order
-# (delivered or canceled) to produce one completed lifecycle row per order.
-# Watermarks on both sides bound the state size — orders that do not reach
-# a terminal status within 90 days are evicted from state.
 @dlt.table(
     name="silver_order_lifecycle",
     comment=(
@@ -218,13 +185,6 @@ def silver_order_reviews():
 
 
 # SCD Type 1: silver_products
-#
-# Keeps only the latest known state for each product. When a price change
-# event arrives in rounds 2-3, the existing row is overwritten in-place.
-# Use this table when you only care about the current price or category.
-#
-# dlt.create_streaming_table() is required before dlt.apply_changes() so
-# that DLT can register the target schema before wiring up the CDC feed.
 dlt.create_streaming_table(
     name="silver_products",
     comment=(
@@ -244,16 +204,7 @@ dlt.apply_changes(
 
 
 # SCD Type 2: silver_product_price_history
-#
-# Tracks every price and discount change over time. Each price change in
-# rounds 2-3 creates a new history row — the previous row gets an __END_AT
-# timestamp and the new row is opened with __START_AT. Use this table to
-# answer questions like "what was this product's price in January 2018?"
-# or "how many times did the price change before this order was placed?"
-#
-# track_history_column_list restricts history tracking to price and
-# discount_pct only. Other product attributes (category, photo count) that
-# change due to editorial corrections do not generate history rows.
+# track_history_column_list restricts history rows to price and discount_pct changes only.
 dlt.create_streaming_table(
     name="silver_product_price_history",
     comment=(
@@ -278,10 +229,6 @@ dlt.apply_changes(
 
 
 # SCD Type 1: silver_customers
-#
-# Keeps only the latest known address for each customer. When a customer
-# relocates (rounds 2-3 CDC events), their zip/city/state is overwritten.
-# Use this table for shipping address lookups — only current address matters.
 dlt.create_streaming_table(
     name="silver_customers",
     comment=(
@@ -301,11 +248,7 @@ dlt.apply_changes(
 
 
 # SCD Type 2: silver_customer_address_history
-#
-# Tracks every address a customer has been associated with over time.
-# Useful for regional analysis — e.g., "did delivery satisfaction drop
-# after a customer moved from SP to a state with fewer sellers?"
-# Only city, state, and zip changes generate new history rows.
+# track_history_column_list restricts history rows to city, state, and zip changes only.
 dlt.create_streaming_table(
     name="silver_customer_address_history",
     comment=(

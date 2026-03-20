@@ -4,26 +4,10 @@
 
 Reads raw JSON files from the Databricks workspace using cloudFiles
 (Auto Loader) and materialises one Bronze table per source. All tables
-are append-only at this layer — no deduplication or type casting yet.
+are append-only — no deduplication or type casting at this layer.
+Expectations use @dlt.expect (warn-only) to preserve the full raw record set.
 
-Data quality expectations at Bronze use @dlt.expect (warn-only). Rows
-are never dropped here; Bronze preserves the full raw record set so
-that Silver can decide what to keep.
-
-For-loop pattern
-----------------
-Order events arrive as a single stream but carry five distinct status
-values (created, approved, shipped, delivered, canceled). Rather than
-writing five identical @dlt.view definitions that differ only by the
-filter predicate, a loop generates them. In a production pipeline with
-tens of event types this pattern is essential for maintainability.
-
-The five views (v_orders_created, v_orders_approved, v_orders_shipped,
-v_orders_delivered, v_orders_canceled) are non-materialized — DLT
-evaluates them inline and does not write a separate Delta table for each.
-They feed directly into silver_order_lifecycle in 02_silver.py.
-
-Source file layout (pre-prepared in data/ecommerce_data/, uploaded manually to workspace):
+Source files (pre-prepared in data/ecommerce_data/, uploaded manually to workspace):
   ecommerce_data/order_events/round_{N}/data.json
   ecommerce_data/order_items/round_{N}/data.json
   ecommerce_data/order_payments/round_{N}/data.json
@@ -106,9 +90,7 @@ CUSTOMER_UPDATES_SCHEMA = StructType(
     ]
 )
 
-# Workspace path where the JSON files are uploaded manually before each pipeline run.
-# cloudFiles (Auto Loader) monitors this path and picks up new round_N
-# subdirectories automatically on each pipeline run.
+# Overridable via ecommerce.data_root pipeline configuration; defaults to the dev bundle path.
 data_root = spark.conf.get(
     "ecommerce.data_root",
     "/Workspace/Users/pravbala30@protonmail.com/.bundle/ecommerce-dlt/dev/ecommerce_data",
@@ -236,15 +218,8 @@ def bronze_customer_updates():
     )
 
 
-# For-loop: generate per-status order views from bronze_order_events.
-#
-# Five statuses share identical filter logic — only the predicate value differs.
-# Generating them in a loop avoids copy-pasting five nearly identical view
-# definitions and makes adding a new status a one-line change to the list.
-#
-# The default-argument trick (status=status) captures the loop variable by
-# value at definition time, preventing all five closures from referencing
-# the same final value of "status" after the loop completes.
+# For-loop: one @dlt.view per order status. The default-arg trick (status=status)
+# captures the loop variable by value so each closure filters on the correct status.
 order_statuses = ["created", "approved", "shipped", "delivered", "canceled"]
 
 for status in order_statuses:
