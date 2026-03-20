@@ -65,8 +65,8 @@ Full architecture diagram and DLT pattern explanations: [docs/ARCHITECTURE.md](d
 ```
 databricks-ecommerce-dlt-pipeline/
 ├── databricks.yml                  # DAB bundle: catalog, schema, pipeline_mode per target
-├── pyproject.toml                  # ruff config, dev dependencies
-├── Makefile                        # install, lint, fmt, validate, deploy-dev/prod
+├── pyproject.toml                  # dev dependencies (pytest, databricks-sdk)
+├── Makefile                        # install, clean, validate, deploy-dev/prod, run-dev, test
 ├── pipeline/
 │   ├── 01_bronze.py                # cloudFiles ingestion + for-loop status views + inline schemas
 │   ├── 02_silver.py                # transformations + APPLY CHANGES INTO (SCD 1+2 pairs)
