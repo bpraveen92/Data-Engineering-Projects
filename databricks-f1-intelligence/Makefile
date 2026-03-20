@@ -1,4 +1,4 @@
-.PHONY: install build validate deploy-dev deploy-prod run-dev fetch-2024 fetch-2025-round lint fmt clean
+.PHONY: install build validate deploy-dev deploy-prod run-dev fetch-2024 fetch-2025-round clean
 
 PYTHON   := python3
 UV       := uv
@@ -9,12 +9,6 @@ install:
 
 build:
 	$(UV) build --wheel
-
-lint:
-	$(UV) run ruff check utils/ scripts/ streamlit_app/
-
-fmt:
-	$(UV) run ruff format utils/ scripts/ streamlit_app/
 
 clean:
 	rm -rf dist/ *.egg-info/ __pycache__ .pytest_cache data/

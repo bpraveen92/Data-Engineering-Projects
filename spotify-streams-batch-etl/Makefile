@@ -1,4 +1,4 @@
-.PHONY: up down logs test lint fmt inflate-sample aws-bootstrap upload-sample
+.PHONY: up down logs test inflate-sample aws-bootstrap upload-sample
 
 up:
 	docker compose up -d
@@ -11,12 +11,6 @@ logs:
 
 test:
 	pytest -q
-
-lint:
-	ruff check dags src transform_jobs tests
-
-fmt:
-	ruff format dags src transform_jobs tests
 
 inflate-sample:
 	python3 scripts/inflate_sample_data.py
