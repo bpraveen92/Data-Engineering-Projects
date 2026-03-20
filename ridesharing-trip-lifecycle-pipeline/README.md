@@ -114,30 +114,21 @@ event_hour           pickup_location_id  dropoff_location_id  trip_count  fare_s
 
 ---
 
-## Key Decisions I Made (and Changed)
+## Key Decisions
 
-**Why DynamoDB for state, not a database join in Spark?**
-The two streams arrive independently and out of order. There's no guarantee `trip_start` comes before `trip_end`. I needed a fast, key-value store to hold partial state — DynamoDB with `trip_id` as the partition key is the natural fit. Each Lambda just reads the existing item and upserts.
+**DynamoDB for stateful join** — the two streams arrive independently and out of order. DynamoDB with `trip_id` as the partition key holds partial state; each Lambda reads the existing item and upserts its side of the trip.
 
-**Why not have Glue scan DynamoDB directly?**
-Every Glue run would do a full DynamoDB table scan — expensive, slow, and it grows unboundedly as trip volume increases. Instead, `lambda_trip_end` writes completed-trip events directly to S3 staging partitioned by `dropoff_datetime` hour. Glue only reads the new files it hasn't seen yet.
+**Lambda writes to S3 staging, not DynamoDB** — having Glue scan DynamoDB directly would require a full table scan on every run. Instead, `lambda_trip_end` writes completed trips to S3 staging partitioned by `dropoff_datetime` hour. Glue only reads files it hasn't seen yet.
 
-**Why stage by `dropoff_datetime` hour, not Lambda invocation time?**
-The S3 partition key is derived from the trip's `dropoff_datetime`, not from when Lambda ran. A trip with `dropoff_datetime=13:45` that Lambda processes at 14:25 lands in `staging/.../hour=13/`, not `hour=14/`. This keeps the staging partition aligned with the output partition — Glue groups by `date_trunc('hour', dropoff_datetime)`, so a late-arriving trip always folds into the correct hour aggregate regardless of when Lambda wrote its file.
+**Partition by `dropoff_datetime`, not Lambda invocation time** — a trip with `dropoff_datetime=13:45` processed at 14:25 lands in `hour=13/`, keeping the staging partition aligned with the aggregation output regardless of when Lambda ran.
 
-**Why a checkpoint instead of reprocessing everything?**
-I keep a checkpoint JSON in S3 that tracks the `last_modified` timestamp and S3 key of the last staged file each Glue run processed. On the next run I skip everything at or before that marker. But there's a scalability problem with naively listing the full `staging/completed_trips/` prefix — after months of data that becomes thousands of files to page through, and almost all of them are behind the checkpoint. So on incremental runs I narrow the S3 listing to only the 2 most recently closed hour prefixes: `floor(now) - 2h` and `floor(now) - 1h`. The currently-open hour is excluded — it has only a few minutes of data and will be fully captured on the next run. At 15:05 that's just `hour=13` and `hour=14`. The checkpoint filter then runs on that small set. Combined with `spark.sql.sources.partitionOverwriteMode=dynamic`, only the affected output partitions get rewritten.
+**Checkpoint + 2-hour listing window** — a checkpoint JSON tracks the last staged file processed. On incremental runs, Glue only lists the 2 most recently closed hour prefixes rather than scanning the full staging tree. Combined with `partitionOverwriteMode=dynamic`, only affected output partitions are rewritten.
 
-**How I handle late arrivals**
-Lateness is enforced by the listing scope, not by a per-file age check. On incremental runs, Glue only lists the 2 most recently closed hour prefixes. Any new file that lands in those 2 prefixes gets processed — it doesn't matter whether the hour closed 5 minutes or 65 minutes ago. If a late-arriving event's staging file falls outside those 2 prefixes, it simply isn't listed and never reaches aggregation.
+**Late arrivals** — any file landing in those 2 prefixes is processed regardless of how recently the hour closed. Files in older prefixes are never listed and don't reach aggregation.
 
-Example at a 15:05 run: Glue lists `hour=13` and `hour=14`. A trip with `dropoff_datetime=13:47` that Lambda processed at 14:55 wrote its file to `staging/.../hour=13/` — it's in the window, it gets counted. The same trip arriving at 16:15 misses the 16:05 run entirely because `hour=13` is no longer in the listing window at that point.
+**Glue on EventBridge, not Lambda-triggered** — Lambda is invoked dozens of times per minute during traffic bursts. Triggering Glue from each invocation queues competing runs against the same checkpoint. Glue runs on an hourly EventBridge schedule instead.
 
-**Why not trigger Glue from Lambda?**
-I tried this. The problem is Lambda gets invoked per batch of Kinesis records — potentially dozens of times a minute during high traffic. Glue startup alone takes 1-2 minutes, so triggering it from Lambda creates a queue of competing Glue runs fighting over the same checkpoint. I moved Glue to an hourly EventBridge schedule instead. Lambda's only job now is: write to DynamoDB, write to S3 staging, done.
-
-**Why two staging read paths in Glue?**
-`local_staging` uses boto3 to read staged files from LocalStack S3 — simple, no `s3a` config needed, easy to debug in Docker. `glue_staging` uses Glue's native Spark S3 reader in AWS. Both paths share the same `transform_completed_trips` Spark logic after the read.
+**Two staging read paths** — `local_staging` uses boto3 against LocalStack (no `s3a` config needed); `glue_staging` uses Glue's native Spark S3 reader in AWS. Both share the same `transform_completed_trips` logic after the read.
 
 ---
 
