@@ -18,13 +18,13 @@ flowchart TD
     TE[("trip_end.csv")]
     KS["Kinesis\ntrip-start-stream"]
     KE["Kinesis\ntrip-end-stream"]
-    LS["Lambda\nlambda_trip_start"]
-    LE["Lambda\nlambda_trip_end"]
-    DY[("DynamoDB\ntrip_lifecycle\nstateful join store")]
-    S3S[("S3 staging\ncompleted_trips/\npartitioned by dropoff hour")]
-    EB["EventBridge\nhourly schedule"]
-    GL["Glue\nglue_trip_aggregator\nincremental · checkpoint-aware"]
-    S3A[("S3\nhourly_zone_metrics/")]
+    LS["Lambda\ntrip_start"]
+    LE["Lambda\ntrip_end"]
+    DY[("DynamoDB\ntrip_lifecycle")]
+    S3S[("S3\nstaging")]
+    EB["EventBridge\nhourly"]
+    GL["Glue\ntrip_aggregator"]
+    S3A[("S3\naggregations")]
     CR["Glue Crawler"]
     AT["Athena"]
 
@@ -32,9 +32,9 @@ flowchart TD
     TE --> KE
     KS --> LS
     KE --> LE
-    LS -->|"upsert start state"| DY
-    LE -->|"read + complete join"| DY
-    LE -->|"write completed trip"| S3S
+    LS --> DY
+    LE --> DY
+    LE --> S3S
     S3S --> EB
     EB --> GL
     GL --> S3A

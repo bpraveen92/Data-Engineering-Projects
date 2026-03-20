@@ -10,39 +10,39 @@ The pipeline follows the medallion architecture (Bronze → Silver → Gold) and
 
 ```mermaid
 flowchart TD
-    J[("Jolpica-F1 API\nresults · standings\nqualifying · pit stops")]
-    O[("OpenF1 API\nlap timing · stints\nweather")]
-    F["fetch_and_upload.py\nruns locally · resume-safe\nfetch_progress.json tracks completed calls"]
-    P[("Workspace Parquet files\n/.bundle/f1-intelligence/dev/f1_data/")]
+    J[("Jolpica-F1 API")]
+    O[("OpenF1 API")]
+    F["fetch_and_upload.py"]
+    P[("Workspace Parquet files")]
 
-    subgraph BRONZE ["BRONZE — Delta · MERGE · CDF · Liquid Clustered"]
+    subgraph BRONZE ["Bronze"]
         direction LR
-        B1["bronze_race_schedule · bronze_race_results\nbronze_qualifying · bronze_pit_stops"]
-        B2["bronze_driver_standings · bronze_constructor_standings\nbronze_laps · bronze_stints"]
+        B1["Race schedule · Results\nQualifying · Pit stops"]
+        B2["Driver · Constructor standings\nLaps · Stints"]
     end
 
-    subgraph SILVER ["SILVER — typed · enriched · joined · validated"]
+    subgraph SILVER ["Silver"]
         direction LR
-        S1["silver_race_results · silver_qualifying\nsilver_driver_standings · silver_constructor_standings"]
-        S2["silver_lap_analysis\nOpenF1 × Jolpica join on race_date"]
+        S1["Race results · Qualifying\nDriver · Constructor standings"]
+        S2["Lap analysis\nOpenF1 × Jolpica join"]
     end
 
-    subgraph GOLD ["GOLD — analytics-ready · MERGE upserts"]
+    subgraph GOLD ["Gold"]
         direction LR
-        G1["gold_driver_championship\nMERGE on season, driver_id"]
-        G2["gold_constructor_championship\nMERGE on season, constructor_id"]
-        G3["gold_circuit_benchmarks\nMERGE on circuit_id"]
-        G4["gold_tyre_strategy_report\nAPPEND per race"]
+        G1["Driver championship"]
+        G2["Constructor championship"]
+        G3["Circuit benchmarks"]
+        G4["Tyre strategy report"]
     end
 
-    D["Streamlit Dashboard\nChampionship · Race Results · Tyre Strategy · Circuit Records"]
+    D["Streamlit Dashboard"]
 
     J --> F
     O --> F
     F --> P
     P --> BRONZE
-    BRONZE -->|"CDF · checkpoint: bronze_to_silver_results\n               bronze_to_silver_laps"| SILVER
-    SILVER -->|"CDF · checkpoint: silver_to_gold"| GOLD
+    BRONZE -->|"CDF"| SILVER
+    SILVER -->|"CDF"| GOLD
     GOLD --> D
 ```
 

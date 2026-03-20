@@ -80,27 +80,27 @@ flowchart TD
         direction LR
         F1["songs.csv"]
         F2["users.csv"]
-        F3["streams_*.csv\npartitioned by date"]
+        F3["streams_*.csv"]
     end
 
     subgraph DAG ["Airflow DAG — 8 Tasks"]
         direction LR
-        T1["1. find_pending_files\n2. should_run\n3. build_run_context"]
-        T2["4. run_transform\n5. run_quality_checks\n6. load_to_redshift"]
-        T3["7. build_gold_layer\n8. mark_files_processed"]
+        T1["find_pending_files\nshould_run\nbuild_run_context"]
+        T2["run_transform\nrun_quality_checks\nload_to_redshift"]
+        T3["build_gold_layer\nmark_files_processed"]
         T1 --> T2 --> T3
     end
 
     subgraph CUR ["S3 Curated"]
         direction LR
-        C1["songs · users · streams\nrun_id=.../data.parquet"]
-        C2["schemas/\nprocessed_raw_files.json\nprocessed manifest"]
+        C1["Normalized Parquet\nper dataset"]
+        C2["Processed manifest"]
     end
 
     subgraph RS ["Redshift Serverless"]
         direction LR
-        SIL["Silver\nsilver.songs · silver.users\nsilver.streams · silver.pipeline_audit"]
-        GLD["Gold\ngold.daily_stream_metrics\ngold.top_tracks_daily\ngold.country_streams_daily"]
+        SIL["Silver\nsongs · users · streams"]
+        GLD["Gold\ndaily metrics"]
         SIL --> GLD
     end
 

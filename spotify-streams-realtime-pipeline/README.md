@@ -26,14 +26,14 @@ Results land as partitioned Parquet in MinIO (local) or S3 (production), queryab
 
 ```mermaid
 flowchart TD
-    K["Kinesis Stream\nmusic-streams"]
+    K["Kinesis"]
     D1[("songs.csv")]
     D2[("users.csv")]
-    SP["spark_aggregator.py\nPySpark Structured Streaming\n5-min windows · 1-min watermark"]
-    O1[("hourly_streams/\nstream counts per track + country")]
-    O2[("top_tracks_hourly/\ntracks ranked by play count")]
-    O3[("country_metrics_hourly/\nunique users + tracks per country")]
-    S3["S3 / MinIO\nParquet · partitioned by window_start"]
+    SP["PySpark\nStructured Streaming"]
+    O1[("hourly_streams")]
+    O2[("top_tracks_hourly")]
+    O3[("country_metrics_hourly")]
+    S3["S3 / MinIO"]
 
     K --> SP
     D1 -->|"broadcast join"| SP
