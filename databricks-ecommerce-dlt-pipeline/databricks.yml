@@ -1,0 +1,40 @@
+bundle:
+  name: ecommerce-dlt
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog name
+    default: ecommerce_dlt
+  schema:
+    description: Schema name (environment-specific)
+    default: ecommerce_dev
+  pipeline_mode:
+    description: DLT pipeline processing mode — incremental or full_refresh
+    default: incremental
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-7abede46-67a0.cloud.databricks.com
+    variables:
+      catalog: ecommerce_dlt
+      schema: ecommerce_dev
+      pipeline_mode: incremental
+
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-7abede46-67a0.cloud.databricks.com
+      root_path: /Workspace/Users/pravbala30@protonmail.com/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: ecommerce_dlt
+      schema: ecommerce_prod
+      pipeline_mode: incremental
+    permissions:
+      - user_name: pravbala30@protonmail.com
+        level: CAN_MANAGE

@@ -1,0 +1,15 @@
+[project]
+name = "ecommerce-dlt"
+version = "0.1.0"
+description = "E-Commerce DLT Pipeline: Declarative Delta Live Tables on Olist Brazilian E-Commerce data"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "databricks-sdk>=0.20",
+    "databricks-connect>=15.4,<15.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
