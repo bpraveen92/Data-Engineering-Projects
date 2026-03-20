@@ -12,76 +12,33 @@ the DLT framework.
 ## Architecture Diagram
 
 ```mermaid
-flowchart TD
-    subgraph Local["Local Machine"]
-        olist[("Olist CSVs\ndata/raw/olist/")]
-        gen["scripts/generate_and_upload.py\nExplode · Split · CDC · Upload"]
+flowchart LR
+    subgraph Source["Workspace — ecommerce_data/"]
+        src[("JSON files\nround_1 · round_2 · round_3\n6 table directories")]
     end
 
-    subgraph Workspace["Databricks Workspace (uploaded JSON files)"]
-        oe["order_events/round_N/"]
-        oi["order_items/round_N/"]
-        op["order_payments/round_N/"]
-        orv["order_reviews/round_N/"]
-        pu["product_updates/round_N/"]
-        cu["customer_updates/round_N/"]
+    subgraph Bronze["Bronze — 01_bronze.py"]
+        b_orders["bronze_order_events\n+ v_orders_* views\n(for-loop, 5 statuses)"]
+        b_items["bronze_order_items\nbronze_order_payments\nbronze_order_reviews"]
+        b_cdc["bronze_product_updates\nbronze_customer_updates"]
     end
 
-    subgraph Bronze["Bronze Layer — 01_bronze.py"]
-        boe["bronze_order_events"]
-        boi["bronze_order_items"]
-        bop["bronze_order_payments"]
-        bor["bronze_order_reviews"]
-        bpu["bronze_product_updates"]
-        bcu["bronze_customer_updates"]
-        vo["v_orders_created/approved/\nshipped/delivered/canceled\n(for-loop views)"]
+    subgraph Silver["Silver — 02_silver.py"]
+        s_lifecycle["silver_order_lifecycle\n(stream-stream join)"]
+        s_orders["silver_order_items\nsilver_order_payments\nsilver_order_reviews"]
+        s_scd["silver_products (SCD1)\nsilver_product_price_history (SCD2)\nsilver_customers (SCD1)\nsilver_customer_address_history (SCD2)"]
     end
 
-    subgraph Silver["Silver Layer — 02_silver.py"]
-        sol["silver_order_lifecycle\n(stream-stream join)"]
-        soi["silver_order_items"]
-        sop["silver_order_payments"]
-        sor["silver_order_reviews"]
-        sp["silver_products\n(SCD Type 1)"]
-        sph["silver_product_price_history\n(SCD Type 2)"]
-        sc["silver_customers\n(SCD Type 1)"]
-        sah["silver_customer_address_history\n(SCD Type 2)"]
+    subgraph Gold["Gold — 03_gold.py"]
+        g["gold_order_fulfillment\ngold_seller_performance\ngold_category_revenue"]
     end
 
-    subgraph Gold["Gold Layer — 03_gold.py"]
-        gof["gold_order_fulfillment"]
-        gsp["gold_seller_performance"]
-        gcr["gold_category_revenue"]
-    end
-
-    olist --> gen
-    gen --> oe & oi & op & orv & pu & cu
-    oe --> boe
-    oi --> boi
-    op --> bop
-    orv --> bor
-    pu --> bpu
-    cu --> bcu
-    boe --> vo
-    vo --> sol
-    boe --> sol
-    boi --> soi
-    bop --> sop
-    bor --> sor
-    bpu --> sp
-    bpu --> sph
-    bcu --> sc
-    bcu --> sah
-    sol --> gof
-    soi --> gof
-    sop --> gof
-    sor --> gof
-    soi --> gsp
-    sol --> gsp
-    sor --> gsp
-    soi --> gcr
-    sp --> gcr
-    sol --> gcr
+    src -->|cloudFiles\nAuto Loader| b_orders & b_items & b_cdc
+    b_orders --> s_lifecycle
+    b_items --> s_orders
+    b_cdc --> s_scd
+    s_lifecycle & s_orders --> g
+    s_scd -->|category lookup| g
 ```
 
 ## Why DLT Over Imperative Notebooks
