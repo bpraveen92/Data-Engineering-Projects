@@ -70,12 +70,23 @@ databricks-ecommerce-dlt-pipeline/
 ├── pipeline/
 │   ├── 01_bronze.py                # cloudFiles ingestion + for-loop status views + inline schemas
 │   ├── 02_silver.py                # transformations + APPLY CHANGES INTO (SCD 1+2 pairs)
-│   └── 03_gold.py                  # aggregations + if-else on pipeline.mode
+│   └── 03_gold.py                  # aggregations + batch reads at Gold layer
 ├── data/
-│   └── ecommerce_data/                  # Pre-prepared JSON dataset (committed)
-│       ├── round_1/
-│       ├── round_2/
-│       └── round_3/
+│   └── ecommerce_data/             # Pre-prepared JSON dataset (committed, 3 rounds × 6 tables)
+│       ├── order_events/
+│       │   ├── round_1/data.json
+│       │   ├── round_2/data.json
+│       │   └── round_3/data.json
+│       ├── order_items/            # same round_1/2/3 structure
+│       ├── order_payments/         # same round_1/2/3 structure
+│       ├── order_reviews/          # same round_1/2/3 structure
+│       ├── product_updates/        # same round_1/2/3 structure
+│       └── customer_updates/       # same round_1/2/3 structure
+├── tests/
+│   ├── conftest.py                 # shared fixtures: WorkspaceClient, SQL execution helper
+│   ├── test_bronze.py              # 11 data quality tests (row counts, nulls, domain values)
+│   ├── test_silver.py              # 18 tests (SCD1/SCD2 correctness, no duplicates, join logic)
+│   └── test_gold.py                # 15 tests (aggregation accuracy, positive revenue, no duplicates)
 ├── resources/
 │   └── ecommerce_dlt.pipeline.yml  # DLT pipeline DAB resource definition
 └── docs/
