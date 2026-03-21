@@ -45,6 +45,13 @@ Same Spotify dataset as the batch pipeline, rebuilt as a streaming model. A Kine
 
 ---
 
+### [NYC Taxi Analytics: dbt + Snowflake](snowflake-nyc-taxi-analytics/)
+**Stack:** dbt · Snowflake · Python · Airflow · astronomer-cosmos
+
+An analytics engineering pipeline on 24M NYC TLC Yellow Taxi trip records — the only project in this portfolio with a dedicated transformation layer. All transformation logic lives in version-controlled, tested dbt SQL models: an incremental fact table with MERGE strategy and clustering key, SCD Type 2 zone snapshot via `strategy='check'`, enforced model contract on `fct_trips`, and a custom `generate_schema_name` macro for dev/prod schema isolation. Orchestrated by a daily Airflow DAG using astronomer-cosmos, which exposes each dbt model as its own independently-retryable task.
+
+---
+
 ## What's Consistent Across Projects
 
 - **Local-first development** — every pipeline runs in Docker against LocalStack (and MinIO for Project 2) before touching AWS. `make up && make docker-all && make down` is the full local cycle.
