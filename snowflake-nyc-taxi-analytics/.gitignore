@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+*.egg-info/
+
+# dbt generated output — rebuild with `dbt run` and `dbt docs generate`
+target/
+dbt_packages/
+
+# Snowflake credentials — never commit
+profiles.yml
+.env
+
+# Raw TLC Parquet files (~700MB) — download separately with `make download`
+data/raw/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

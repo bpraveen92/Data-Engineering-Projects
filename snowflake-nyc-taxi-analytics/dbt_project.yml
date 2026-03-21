@@ -1,0 +1,57 @@
+name: nyc_taxi_analytics
+version: "1.0.0"
+config-version: 2
+
+profile: snowflake_nyc_taxi
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  start_date: null
+  end_date: null
+
+models:
+  nyc_taxi_analytics:
+    # Tag all dbt queries in Snowflake's query history for cost attribution.
+    # In Snowflake UI: Query History → filter by Query Tag = 'nyc_taxi_dbt'
+    +query_tag: nyc_taxi_dbt
+
+    staging:
+      +materialized: view
+      +schema: staging
+      +tags: ['staging']
+    intermediate:
+      +materialized: ephemeral
+      +tags: ['intermediate']
+    marts:
+      core:
+        +materialized: table
+        +schema: marts_core
+        +tags: ['core']
+      finance:
+        +materialized: table
+        +schema: marts_finance
+        +tags: ['finance']
+
+seeds:
+  nyc_taxi_analytics:
+    +schema: raw
+    taxi_zones:
+      +column_types:
+        zone_id: integer
+    payment_types:
+      +column_types:
+        payment_type_id: integer
+    vendor_names:
+      +column_types:
+        vendor_id: integer
