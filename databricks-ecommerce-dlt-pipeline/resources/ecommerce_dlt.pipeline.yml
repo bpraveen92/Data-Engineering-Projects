@@ -3,24 +3,15 @@ resources:
     ecommerce_dlt_pipeline:
       name: ${bundle.target} Ecommerce DLT Pipeline
 
-      # Unity Catalog target — DLT creates all tables inside this catalog and schema.
-      # The catalog and schema variables are resolved per target (dev/prod) in databricks.yml.
       catalog: ${var.catalog}
       target: ${var.schema}
 
-      # Community Edition requires serverless compute for DLT pipelines.
       serverless: true
 
-      # pipeline.mode is read inside 02_silver.py and 03_gold.py via spark.conf.get().
-      # incremental: process only new data since the last run (default for all targets).
-      # full_refresh: re-process all Bronze data from scratch (use for backfills).
       configuration:
         pipeline.mode: ${var.pipeline_mode}
         ecommerce.data_root: /Workspace/Users/<your-databricks-email>/.bundle/ecommerce-dlt/dev/ecommerce_data
 
-      # DLT infers the pipeline DAG automatically from dlt.read() / dlt.read_stream() calls.
-      # Notebooks are loaded in the order listed — Bronze must precede Silver and Gold
-      # so that table names referenced by dlt.read_stream() are already registered.
       libraries:
         - notebook:
             path: ../pipeline/01_bronze.py
