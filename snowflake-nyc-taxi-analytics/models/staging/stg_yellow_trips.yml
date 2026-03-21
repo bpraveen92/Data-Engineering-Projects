@@ -1,0 +1,102 @@
+version: 2
+
+models:
+  - name: stg_yellow_trips
+    description: >
+      Cleaned and typed staging view for NYC TLC Yellow Taxi trip records.
+      One row per trip.  Surrogate key trip_id is generated from vendor_id +
+      pickup_datetime + pickup_location_id.  This model is the single entry
+      point for all downstream transformations.
+    columns:
+      - name: trip_id
+        description: Surrogate key — MD5 hash of vendor_id, pickup_datetime, pickup_location_id.
+        tests:
+          - not_null
+          - unique
+
+      - name: vendor_id
+        description: ID of the TPEP provider (1 = CMT, 2 = VeriFone).
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2, 6]
+
+      - name: pickup_datetime
+        description: Timestamp when the meter was engaged.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: timestamp_ntz
+
+      - name: dropoff_datetime
+        description: Timestamp when the meter was disengaged.
+        tests:
+          - not_null
+
+      - name: pickup_date
+        description: Date portion of pickup_datetime — used as clustering key in fct_trips.
+        tests:
+          - not_null
+
+      - name: trip_duration_minutes
+        description: >
+          Trip duration in minutes derived as datediff(dropoff, pickup).
+          Always positive because rows where dropoff <= pickup are filtered in staging.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 300
+
+      - name: trip_distance
+        description: Elapsed trip distance in miles as reported by the taximeter.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 200
+
+      - name: pickup_location_id
+        description: TLC Taxi Zone ID for trip pickup location. FK to taxi_zones seed.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('taxi_zones')
+              field: zone_id
+
+      - name: dropoff_location_id
+        description: TLC Taxi Zone ID for trip dropoff location. FK to taxi_zones seed.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('taxi_zones')
+              field: zone_id
+
+      - name: payment_type
+        description: How the passenger paid. FK to payment_types seed.
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6]
+
+      - name: fare_amount
+        description: Metered fare amount in USD.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -100
+              max_value: 1000
+
+      - name: total_amount
+        description: Total charged to passenger (excludes cash tips).
+        tests:
+          - not_null
+
+      - name: _loaded_at
+        description: UTC timestamp when the row was loaded by scripts/load_to_snowflake.py.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_to_exist
+
+      - name: _source_month
+        description: YYYY-MM string from which monthly file this row originated.
+        tests:
+          - not_null

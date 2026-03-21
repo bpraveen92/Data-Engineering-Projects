@@ -1,0 +1,7 @@
+payment_type_id,payment_type_name,payment_type_desc
+1,Credit card,Payment made using a credit card
+2,Cash,Payment made using cash
+3,No charge,Complimentary ride — no charge applied
+4,Dispute,Trip is in dispute
+5,Unknown,Payment type not recorded
+6,Voided trip,Trip was voided and no payment collected
