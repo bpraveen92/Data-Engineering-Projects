@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: int_trips_enriched
+    description: >
+      Ephemeral intermediate model that enriches stg_yellow_trips with dimension
+      attributes from seeds (zones, payment types, vendor names) and adds derived
+      columns: time_of_day, is_airport_trip, pickup_hour, pickup_day_name, tip_pct.
+
+      This model is not materialized as a Snowflake object — it compiles into a
+      CTE inside every downstream model.  No tests are defined here; tests live
+      on the upstream staging model and on the downstream fact/mart models.
