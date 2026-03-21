@@ -1,8 +1,10 @@
 .PHONY: install clean lint fmt download load dbt-deps dbt-seed dbt-run dbt-test \
-        dbt-snapshot dbt-docs backfill pytest ci
+        dbt-snapshot dbt-docs backfill pytest ci \
+        airflow-install airflow-init airflow-start airflow-stop airflow-reset
 
-UV  := uv
-DBT := dbt
+UV           := uv
+DBT          := dbt
+AIRFLOW_HOME := $(shell pwd)/airflow
 
 install:
 	$(UV) pip install -e ".[dev]"
@@ -47,3 +49,31 @@ pytest:
 	pytest tests_pytest/ -v
 
 ci: lint dbt-seed dbt-run dbt-test pytest
+
+# ---------------------------------------------------------------------------
+# Airflow orchestration
+# ---------------------------------------------------------------------------
+
+airflow-install:
+	$(UV) pip install -e ".[orchestration]"
+
+airflow-init:
+	AIRFLOW_HOME=$(AIRFLOW_HOME) \
+	AIRFLOW__CORE__DAGS_FOLDER=$(shell pwd)/dags \
+	AIRFLOW__CORE__LOAD_EXAMPLES=False \
+	airflow db migrate
+
+airflow-start:
+	AIRFLOW_HOME=$(AIRFLOW_HOME) \
+	AIRFLOW__CORE__DAGS_FOLDER=$(shell pwd)/dags \
+	AIRFLOW__CORE__LOAD_EXAMPLES=False \
+	AIRFLOW__CORE__EXECUTE_TASKS_NEW_PYTHON_INTERPRETER=True \
+	airflow standalone
+
+airflow-stop:
+	pkill -f "airflow standalone" || true
+
+airflow-reset:
+	rm -rf $(AIRFLOW_HOME)/airflow.db $(AIRFLOW_HOME)/logs \
+	       $(AIRFLOW_HOME)/airflow.cfg $(AIRFLOW_HOME)/webserver_config.py \
+	       $(AIRFLOW_HOME)/standalone_admin_password.txt
