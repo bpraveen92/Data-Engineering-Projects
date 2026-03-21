@@ -10,31 +10,38 @@ Each project is self-contained with its own README, runbooks, tests, and deploym
 
 ## Projects
 
+### [Ecommerce DLT Pipeline: Declarative Medallion Architecture](databricks-ecommerce-dlt-pipeline/)
+**Stack:** Databricks · Delta Live Tables · PySpark · Unity Catalog · Databricks Asset Bundles
+
+A declarative Delta Live Tables pipeline on the Olist Brazilian E-Commerce dataset. Demonstrates SCD Type 1 and Type 2 via `APPLY CHANGES INTO`, for-loop view generation, incremental vs full-refresh branching via `pipeline.mode`, and all three DLT expectation severity levels — validated with a 44-test pytest suite against live Unity Catalog tables.
+
+---
+
 ### [F1 Intelligence: Databricks Medallion Pipeline](databricks-f1-intelligence/)
 **Stack:** Databricks · Delta Lake · PySpark · Unity Catalog · Streamlit · Databricks Asset Bundles
 
-An end-to-end analytics platform built on Databricks that ingests Formula 1 data from two public APIs — Jolpica-F1 (race results, standings, qualifying) and OpenF1 (per-lap timing, tyre stints) — and processes it through a Bronze → Silver → Gold medallion architecture. Post-race steward penalties alter race results hours after a race ends, and championship standings have exactly one row per driver updated in-place after every round — so the pipeline uses Delta MERGE, Change Data Feed, and Time Travel to handle these update patterns correctly. Deployed via Databricks Asset Bundles with a four-page Streamlit dashboard backed by Unity Catalog.
-
----
-
-### [Spotify Streams: Batch ETL Pipeline](spotify-streams-batch-etl/)
-**Stack:** S3 · Airflow (MWAA) · Redshift Serverless · Great Expectations
-
-An 8-task Airflow DAG that ingests music streaming CSV files from S3, applies data quality checks with Great Expectations, and loads curated gold-layer aggregations into Redshift Serverless on a 15-minute schedule. Uses an S3 manifest for incremental tracking so re-runs never double-count.
-
----
-
-### [Spotify Streams: Real-Time Analytics Pipeline](spotify-streams-realtime-pipeline/)
-**Stack:** Kinesis · PySpark Structured Streaming · AWS Glue Streaming · S3
-
-A continuation of the batch pipeline — same Spotify dataset, stream-based processing model. Three parallel Kinesis streams feed a PySpark Structured Streaming job that joins events with dimension tables and writes 5-minute windowed aggregations to S3 as Parquet.
+An end-to-end analytics platform on Databricks ingesting Formula 1 data from two public APIs through a Bronze → Silver → Gold medallion architecture. Uses Delta MERGE, Change Data Feed, and Time Travel to handle late-arriving steward penalties and in-place championship standing updates — deployed via Databricks Asset Bundles with a four-page Streamlit dashboard.
 
 ---
 
 ### [Ride-Sharing Trip Lifecycle Pipeline](ridesharing-trip-lifecycle-pipeline/)
 **Stack:** Kinesis · Lambda · DynamoDB · AWS Glue · Athena · LocalStack
 
-An event-driven pipeline that joins two independent streams — trip start and trip end events from a synthetic NYC-style ride-sharing dataset — through DynamoDB. Lambda handles the stateful join per trip, stages completed trips to S3 partitioned by dropoff hour, and a checkpoint-aware Glue job runs hourly aggregations queryable through Athena. Handles out-of-order events, missing start records, late arrivals, and incremental processing without full rescans.
+An event-driven pipeline that joins trip start and trip end streams through DynamoDB, stages completed trips to S3, and runs hourly Glue aggregations queryable via Athena. Handles out-of-order events, missing start records, and late arrivals without full rescans.
+
+---
+
+### [Spotify Streams: Batch ETL Pipeline](spotify-streams-batch-etl/)
+**Stack:** S3 · Airflow (MWAA) · Redshift Serverless · Great Expectations
+
+An 8-task Airflow DAG that ingests music streaming CSV files from S3, validates with Great Expectations, and loads gold-layer aggregations into Redshift Serverless on a 15-minute schedule. Uses an S3 manifest for incremental tracking so re-runs never double-count.
+
+---
+
+### [Spotify Streams: Real-Time Analytics Pipeline](spotify-streams-realtime-pipeline/)
+**Stack:** Kinesis · PySpark Structured Streaming · AWS Glue Streaming · S3
+
+Same Spotify dataset as the batch pipeline, rebuilt as a streaming model. A Kinesis stream feeds a PySpark Structured Streaming job that joins events against two static dimension datasets and writes 5-minute windowed aggregations to S3 as Parquet.
 
 ---
 
