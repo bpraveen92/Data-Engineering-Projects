@@ -37,14 +37,14 @@ def get_connection():
         access_token=TOKEN,
     )
 
-def run_query(sql: str) -> list[dict]:
+def run_query(sql):
     conn = get_connection()
     with conn.cursor() as cursor:
         cursor.execute(sql)
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-def table(name: str) -> str:
+def table(name):
     return f"{CATALOG}.{SCHEMA}.{name}"
 
 st.title("🏎 F1 Intelligence")
