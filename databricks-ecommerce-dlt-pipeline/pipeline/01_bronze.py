@@ -93,7 +93,7 @@ CUSTOMER_UPDATES_SCHEMA = StructType(
 # Overridable via ecommerce.data_root pipeline configuration; defaults to the dev bundle path.
 data_root = spark.conf.get(
     "ecommerce.data_root",
-    "/Workspace/Users/pravbala30@protonmail.com/.bundle/ecommerce-dlt/dev/ecommerce_data",
+    "/Workspace/Users/<your-databricks-email>/.bundle/ecommerce-dlt/dev/ecommerce_data",
 )
 
 

@@ -22,7 +22,7 @@ workspace file browser:
 
 1. Open your Databricks workspace → **Workspace** (left sidebar)
 2. Navigate to (create the path if it does not exist):
-   `/Workspace/Users/pravbala30@protonmail.com/.bundle/ecommerce-dlt/dev/ecommerce_data/`
+   `/Workspace/Users/<your-databricks-email>/.bundle/ecommerce-dlt/dev/ecommerce_data/`
 3. For each table directory under `data/ecommerce_data/`, create matching subfolders and upload the
    `data.json` files maintaining the `<table>/round_N/` structure.
 

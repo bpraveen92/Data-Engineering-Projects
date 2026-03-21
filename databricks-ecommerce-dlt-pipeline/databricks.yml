@@ -30,11 +30,11 @@ targets:
     mode: production
     workspace:
       host: https://dbc-7abede46-67a0.cloud.databricks.com
-      root_path: /Workspace/Users/pravbala30@protonmail.com/.bundle/${bundle.name}/${bundle.target}
+      root_path: /Workspace/Users/<your-databricks-email>/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: ecommerce_dlt
       schema: ecommerce_prod
       pipeline_mode: incremental
     permissions:
-      - user_name: pravbala30@protonmail.com
+      - user_name: <your-databricks-email>
         level: CAN_MANAGE

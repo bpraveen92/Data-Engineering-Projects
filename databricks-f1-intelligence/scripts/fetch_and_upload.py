@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT      = os.path.dirname(os.path.dirname(__file__))
 LOCAL_DATA_DIR    = os.path.join(PROJECT_ROOT, "data")
 PROGRESS_FILE     = os.path.join(LOCAL_DATA_DIR, "fetch_progress.json")
-WORKSPACE_DATA    = "/Workspace/Users/pravbala30@protonmail.com/.bundle/f1-intelligence/dev/f1_data"
+WORKSPACE_DATA    = "/Workspace/Users/<your-databricks-email>/.bundle/f1-intelligence/dev/f1_data"
 
 def load_progress():
     """
@@ -107,7 +107,7 @@ def upload_to_workspace(local_path, workspace_path):
     Example:
         upload_to_workspace(
             "data/bronze_race_results.parquet",
-            "/Workspace/Users/pravbala30@protonmail.com/.bundle/f1-intelligence/dev/f1_data/bronze_race_results.parquet"
+            "/Workspace/Users/<your-databricks-email>/.bundle/f1-intelligence/dev/f1_data/bronze_race_results.parquet"
         )
 
     Raises RuntimeError if the CLI exits with a non-zero return code.

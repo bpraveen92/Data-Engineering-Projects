@@ -16,7 +16,7 @@ resources:
       # full_refresh: re-process all Bronze data from scratch (use for backfills).
       configuration:
         pipeline.mode: ${var.pipeline_mode}
-        ecommerce.data_root: /Workspace/Users/pravbala30@protonmail.com/.bundle/ecommerce-dlt/dev/ecommerce_data
+        ecommerce.data_root: /Workspace/Users/<your-databricks-email>/.bundle/ecommerce-dlt/dev/ecommerce_data
 
       # DLT infers the pipeline DAG automatically from dlt.read() / dlt.read_stream() calls.
       # Notebooks are loaded in the order listed — Bronze must precede Silver and Gold
