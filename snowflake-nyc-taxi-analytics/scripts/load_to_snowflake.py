@@ -84,6 +84,15 @@ def prepare_dataframe(path, month):
     df["_loaded_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
     df["_source_month"] = month
 
+    # write_pandas serialises datetime64[ns] columns as nanosecond integers in
+    # the internal Parquet transfer file.  Snowflake's COPY INTO interprets those
+    # integers as microseconds, producing dates ~54 million years in the future.
+    # Converting to ISO-format strings sidesteps the precision mismatch: Snowflake
+    # parses the strings correctly against the TIMESTAMP_NTZ column type in DDL.
+    datetime_cols = df.select_dtypes(include=["datetime64[ns]", "datetime64[us]"]).columns
+    for col in datetime_cols:
+        df[col] = df[col].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
     # write_pandas requires uppercase column names to match Snowflake identifiers.
     df.columns = [c.upper() for c in df.columns]
 

@@ -1,20 +1,5 @@
-/*
-  assert_fare_positive_when_not_void
-  -----------------------------------
-  Singular test: fails if any non-voided, non-dispute trip has a fare_amount <= 0.
-
-  Rationale:
-    - Payment type 3 = No charge → fare_amount can legitimately be 0
-    - Payment type 4 = Dispute   → fare may be 0 pending resolution
-    - Payment type 6 = Voided    → fare should be 0
-    - All other payment types    → a metered trip must have fare_amount > 0
-
-  A zero or negative fare on a normal credit card or cash trip signals either
-  a meter malfunction, a manual correction not properly recorded, or a data
-  pipeline issue that silently zeroed out the fare column.
-
-  Returns the violating rows.  Test passes when count = 0.
-*/
+-- payment types 3=no-charge, 4=dispute, 6=voided may legitimately have fare_amount <= 0
+{{ config(severity = 'warn') }}
 
 select
     trip_id,

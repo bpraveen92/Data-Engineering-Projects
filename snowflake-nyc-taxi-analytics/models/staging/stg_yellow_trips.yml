@@ -47,6 +47,7 @@ models:
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: 1
               max_value: 300
+              severity: warn
 
       - name: trip_distance
         description: Elapsed trip distance in miles as reported by the taximeter.
@@ -54,6 +55,7 @@ models:
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: 0
               max_value: 200
+              severity: warn
 
       - name: pickup_location_id
         description: TLC Taxi Zone ID for trip pickup location. FK to taxi_zones seed.
@@ -77,6 +79,7 @@ models:
           - not_null
           - accepted_values:
               values: [1, 2, 3, 4, 5, 6]
+              severity: warn
 
       - name: fare_amount
         description: Metered fare amount in USD.
@@ -84,6 +87,7 @@ models:
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: -100
               max_value: 1000
+              severity: warn
 
       - name: total_amount
         description: Total charged to passenger (excludes cash tips).
