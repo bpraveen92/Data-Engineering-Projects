@@ -10,14 +10,21 @@ The dataset is NYC TLC Yellow Taxi Trip Records — public Parquet files publish
 
 ## The ELT Pattern
 
-```
-┌────────────────────┐      ┌──────────────────────────┐      ┌──────────────────────────┐
-│  TLC Cloudfront    │      │  Snowflake RAW Schema     │      │  dbt Transformation      │
-│  (public Parquet)  │─────▶│  YELLOW_TRIPDATA          │─────▶│  Staging → Marts         │
-│  ~8M rows/month    │  L   │  (raw, append-only)       │  T   │  (tested, documented)    │
-└────────────────────┘      └──────────────────────────┘      └──────────────────────────┘
-     E (Extract)                    L (Load)                          T (Transform)
-scripts/download_data.py     scripts/load_to_snowflake.py          dbt run / dbt test
+```mermaid
+flowchart LR
+    subgraph E["Extract"]
+        tlc[("TLC Cloudfront\npublic Parquet\n~8M rows/month")]
+        dl["download_data.py"]
+    end
+    subgraph L["Load"]
+        ld["load_to_snowflake.py\npandas → write_pandas\nPUT + COPY INTO"]
+        raw[("Snowflake · RAW\nYELLOW_TRIPDATA\nappend-only")]
+    end
+    subgraph T["Transform"]
+        dbt["dbt run\nStaging → Intermediate\n→ Marts\n\ndbt test"]
+    end
+
+    tlc --> dl --> ld --> raw --> dbt
 ```
 
 The split is intentional. The raw table in Snowflake is the single source of truth — I never modify it. If I need to fix a transformation bug, I fix the dbt model and rerun. The raw data stays intact and auditable.
@@ -147,8 +154,14 @@ This is the declarative SQL equivalent of `APPLY CHANGES INTO ... stored_as_scd_
 
 I added an Airflow orchestration layer to show how this pipeline would be deployed in production on a daily schedule. The DAG in `dags/nyc_taxi_pipeline.py` runs:
 
-```
-dbt_seed  →  dbt_models (DbtTaskGroup)  →  dbt_snapshot  →  dbt_test
+```mermaid
+flowchart LR
+    seed["dbt_seed\nBashOperator"]
+    models["dbt_models\nDbtTaskGroup\n(per-model tasks via cosmos)"]
+    snapshot["dbt_snapshot\nBashOperator"]
+    test["dbt_test\nBashOperator"]
+
+    seed --> models --> snapshot --> test
 ```
 
 The `dbt_models` step uses **astronomer-cosmos**, a library that reads `target/manifest.json` and expands each dbt model into its own Airflow task, preserving dependency order. This means operators can see per-model lineage, retries, and failure status in the Airflow UI rather than treating the entire dbt run as one opaque task.
@@ -184,31 +197,56 @@ The distinction between error and warn is deliberate. I set error severity for t
 
 ## Lineage DAG
 
-```
-source('raw', 'yellow_tripdata')
-    │
-    ▼
-stg_yellow_trips (view)
-    │
-    ├── [seeds: taxi_zones, payment_types, vendor_names]
-    │
-    ▼
-int_trips_enriched (ephemeral — compiled inline as CTE)
-    │
-    ├───────────────────────────────────┐
-    ▼                                   ▼
-fct_trips (incremental table)     mart_hourly_demand (table)
-    │
-    ├───────────────────────────────────────┐
-    ▼                                       ▼
-mart_revenue_by_zone (table)        dim_taxi_zones ← taxi_zones seed
-                                    dim_dates      ← dbt_utils.date_spine
+```mermaid
+flowchart TD
+    src[("source\nraw.yellow_tripdata")]
 
-zone_attributes_snapshot ← taxi_zones seed (SCD2 history)
+    subgraph Seeds["dbt seeds · RAW schema"]
+        direction LR
+        tz["taxi_zones\n265 rows"]
+        pt["payment_types\n6 rows"]
+        vn["vendor_names\n3 rows"]
+    end
 
-fct_trips            ─▶ nyc_taxi_revenue_dashboard (exposure)
-mart_hourly_demand   ─▶ nyc_taxi_demand_heatmap (exposure)
-fct_trips + dim_*    ─▶ nyc_taxi_zone_analytics (exposure)
+    subgraph Staging["DEV_STAGING"]
+        stg["stg_yellow_trips\nview"]
+    end
+
+    int["int_trips_enriched\nephemeral CTE"]
+
+    subgraph Core["DEV_MARTS_CORE"]
+        direction LR
+        fct["fct_trips\nincremental MERGE"]
+        dim_z["dim_taxi_zones"]
+        dim_d["dim_dates\ndbt_utils.date_spine"]
+    end
+
+    subgraph Finance["DEV_MARTS_FINANCE"]
+        direction LR
+        rev["mart_revenue_by_zone"]
+        demand["mart_hourly_demand"]
+    end
+
+    subgraph Snap["SNAPSHOTS"]
+        snap["zone_attributes_snapshot\nSCD Type 2"]
+    end
+
+    subgraph Exposures["Exposures"]
+        direction LR
+        e1["nyc_taxi_revenue_dashboard"]
+        e2["nyc_taxi_demand_heatmap"]
+        e3["nyc_taxi_zone_analytics\nML feature store"]
+    end
+
+    src --> stg
+    Seeds --> int
+    stg --> int
+    int --> fct & demand
+    fct --> rev
+    tz --> dim_z & snap
+    fct & dim_z --> e1 & e3
+    fct --> e1
+    demand --> e2
 ```
 
 Run `make dbt-docs` to view the full interactive lineage DAG in a browser.

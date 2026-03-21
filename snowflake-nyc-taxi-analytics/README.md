@@ -28,48 +28,55 @@ The project demonstrates the ELT pattern: raw Parquet files are bulk-loaded into
 
 ## Architecture
 
-```
-TLC Cloudfront (public Parquet, ~8M rows/month)
-        │
-        │  scripts/download_data.py
-        ▼
-  data/raw/*.parquet  (local, gitignored)
-        │
-        │  scripts/load_to_snowflake.py  (pandas → write_pandas → PUT + COPY INTO)
-        ▼
-Snowflake: NYC_TAXI.RAW.YELLOW_TRIPDATA   ← append-only, never modified
-        │
-        │  dbt run
-        ▼
-┌──────────────────────────────────────────────────────────┐
-│  DEV_STAGING                                             │
-│    stg_yellow_trips (view)                               │
-│    └─ rename, cast, dedup (QUALIFY), surrogate key       │
-│                   │                                      │
-│            + seeds: taxi_zones                           │
-│                   payment_types                          │
-│                   vendor_names                           │
-│                   │                                      │
-│  [int_trips_enriched — ephemeral, inline CTE]            │
-│    └─ join to seeds, is_airport_trip, tip_pct,           │
-│       time_of_day, pickup_day_name                       │
-│                   │                                      │
-│     ┌─────────────┴──────────────┐                       │
-│     ▼                            ▼                       │
-│  DEV_MARTS_CORE             DEV_MARTS_FINANCE            │
-│  ├─ fct_trips               ├─ mart_revenue_by_zone      │
-│  │  (incremental MERGE,     │  (monthly revenue          │
-│  │   clustered by date)     │   per pickup zone)         │
-│  ├─ dim_taxi_zones           └─ mart_hourly_demand       │
-│  └─ dim_dates                   (168-row demand          │
-│                                  heatmap)                │
-│  SNAPSHOTS                                               │
-│  └─ zone_attributes_snapshot (SCD Type 2)                │
-└──────────────────────────────────────────────────────────┘
-        │
-        │  Airflow DAG  (dags/nyc_taxi_pipeline.py)
-        ▼
-dbt_seed → dbt_models (DbtTaskGroup, per-model tasks) → dbt_snapshot → dbt_test
+```mermaid
+flowchart TD
+    subgraph Source["Source"]
+        tlc[("TLC Cloudfront\npublic Parquet · ~8M rows/month")]
+    end
+
+    subgraph Scripts["Extract & Load"]
+        dl["download_data.py"]
+        ld["load_to_snowflake.py\npandas → write_pandas\nPUT + COPY INTO"]
+    end
+
+    subgraph RAW["Snowflake · RAW Schema"]
+        direction LR
+        trips[("YELLOW_TRIPDATA\n~24M rows · append-only")]
+        seeds[("TAXI_ZONES · PAYMENT_TYPES\nVENDOR_NAMES\ndbt seed")]
+    end
+
+    subgraph dbt["dbt Transformation"]
+        subgraph Staging["DEV_STAGING"]
+            stg["stg_yellow_trips\nview · rename · cast · dedup"]
+        end
+        int["int_trips_enriched\nephemeral CTE\njoin to seeds · derive columns"]
+        subgraph Core["DEV_MARTS_CORE"]
+            direction LR
+            fct["fct_trips\nincremental MERGE\nclustered by pickup_date"]
+            dims["dim_taxi_zones\ndim_dates"]
+        end
+        subgraph Finance["DEV_MARTS_FINANCE"]
+            direction LR
+            rev["mart_revenue_by_zone"]
+            demand["mart_hourly_demand"]
+        end
+        subgraph Snap["SNAPSHOTS"]
+            snap["zone_attributes_snapshot\nSCD Type 2"]
+        end
+    end
+
+    subgraph Airflow["Airflow · daily 06:00 UTC"]
+        dag["dbt_seed → dbt_models\n→ dbt_snapshot → dbt_test"]
+    end
+
+    tlc --> dl --> ld --> trips
+    trips -->|"source()"| stg
+    seeds -->|"ref()"| int
+    stg --> int
+    int --> fct & demand
+    fct --> rev
+    seeds --> dims & snap
+    Airflow -.->|"orchestrates"| dbt
 ```
 
 ## Dataset
