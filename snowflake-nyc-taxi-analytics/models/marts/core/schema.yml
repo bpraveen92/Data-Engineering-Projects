@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: dim_taxi_zones
+    description: >
+      Dimension table for all 265 TLC-defined NYC Taxi Zones.
+      Sourced from the taxi_zones seed.  For historical zone attribute changes,
+      see the zone_attributes_snapshot snapshot.
+    columns:
+      - name: zone_id
+        description: Primary key — TLC-assigned zone identifier.
+        tests:
+          - not_null
+          - unique
+      - name: borough
+        description: NYC borough (Manhattan, Queens, Brooklyn, Bronx, Staten Island, EWR, Unknown).
+        tests:
+          - not_null
+      - name: zone_name
+        description: TLC-assigned zone name.
+        tests:
+          - not_null
+      - name: service_zone
+        description: >
+          Service classification: Yellow Zone (Manhattan core), Boro Zone,
+          Airports, EWR, or N/A.
+        tests:
+          - not_null
+      - name: is_airport
+        description: True for JFK Airport, LaGuardia Airport, and Newark Airport zones.
+      - name: is_manhattan_yellow_zone
+        description: True when service_zone = 'Yellow Zone'.
+      - name: is_boro_zone
+        description: True when service_zone = 'Boro Zone'.
+
+  - name: dim_dates
+    description: >
+      Date dimension covering 2023-01-01 through 2024-12-31.
+      Generated via dbt_utils.date_spine macro.  Every day has exactly one row.
+    columns:
+      - name: date_day
+        description: Primary key — calendar date.
+        tests:
+          - not_null
+          - unique
+      - name: year_month
+        description: YYYY-MM string for month-level grouping in mart aggregations.
+        tests:
+          - not_null
