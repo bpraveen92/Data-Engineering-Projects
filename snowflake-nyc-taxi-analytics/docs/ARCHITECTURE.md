@@ -178,6 +178,30 @@ I use four complementary layers of data quality:
 
 The distinction between error and warn is deliberate. I set error severity for tests that would indicate a code bug (a null trip_id, a duplicate in the fact table). I set warn severity for tests that flag real but expected data quality issues in the TLC source (negative fares from meter corrections, extreme trip durations from meters left on).
 
+### Why both dbt singular tests and pytest
+
+Singular SQL tests can technically reference multiple models via `ref()` — there's no restriction there. The reason I use pytest for cross-model reconciliation isn't a SQL limitation, it's that the assertion logic is more natural in Python. Checking that the total revenue in `mart_revenue_by_zone` exactly matches `fct_trips` is a two-query Python assert — in SQL you'd have to engineer the same check as a query that returns rows only when the values differ, and the failure message would be far less useful.
+
+The split is: dbt tests for row-level data quality (nulls, duplicates, FK violations, value bounds), pytest for business logic validation and cross-model reconciliation where Python's expressiveness is a better fit.
+
+### Pipeline execution order
+
+In production these run sequentially, each acting as a gate for the next:
+
+```
+dbt source freshness  ← aborts if raw data is stale before any work starts
+       ↓
+dbt seed              ← seeds must exist before models join against them
+       ↓
+dbt run               ← builds all models in dependency order
+       ↓
+dbt snapshot          ← captures SCD2 state after the latest seed load
+       ↓
+dbt test              ← validates the freshly built models
+       ↓
+pytest                ← cross-model reconciliation as the final quality gate
+```
+
 ---
 
 ## Packages Used
