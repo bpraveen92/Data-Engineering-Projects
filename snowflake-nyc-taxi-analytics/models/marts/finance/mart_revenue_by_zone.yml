@@ -5,7 +5,6 @@ models:
     description: >
       Monthly revenue and trip volume aggregated by pickup taxi zone.
       Grain: one row per (pickup_location_id, year_month).
-      Referenced by the 'NYC Taxi Revenue Dashboard' exposure.
     columns:
       - name: pickup_location_id
         description: TLC zone ID of the trip origin.

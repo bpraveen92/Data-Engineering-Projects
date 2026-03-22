@@ -8,7 +8,6 @@ to verify:
   - No trips with zero or negative duration after staging filters
   - Column types are correct (using information_schema introspection)
 
-All tests require an active Snowflake connection and a recently-run dbt model.
 """
 
 import pytest
@@ -17,13 +16,6 @@ from tests_pytest.conftest import query
 
 class TestStagingRowCounts:
     def test_row_count_matches_source(self, snowflake_conn, dev_staging_schema):
-        """
-        Staging view should contain the same number of rows as the raw source,
-        minus rows that were filtered out (null datetime, dropoff <= pickup).
-
-        We verify staging count <= raw count, which always holds.
-        We also verify staging count > 0 (data actually loaded).
-        """
         raw_count = query(
             snowflake_conn,
             "SELECT COUNT(*) AS cnt FROM NYC_TAXI.RAW.YELLOW_TRIPDATA"
@@ -124,7 +116,8 @@ class TestStagingColumnTypes:
               AND column_name  = 'PICKUP_DATETIME'
             """
         )
-        assert len(rows) == 1, "Column PICKUP_DATETIME not found in information_schema"
+        assert len(
+            rows) == 1, "Column PICKUP_DATETIME not found in information_schema"
         assert "TIMESTAMP" in rows[0]["data_type"].upper(), (
             f"Expected PICKUP_DATETIME to be TIMESTAMP type, got: {rows[0]['data_type']}"
         )

@@ -4,10 +4,10 @@ Snowflake connection helper and bulk-load utilities.
 All credentials are read from environment variables so that secrets never
 appear in source code or configuration files.  Set these before running:
 
-  export SNOWFLAKE_ACCOUNT=<your-account-identifier>   # e.g. xy12345.us-east-1
+  export SNOWFLAKE_ACCOUNT=<your-account-identifier>   
   export SNOWFLAKE_USER=<username>
   export SNOWFLAKE_PASSWORD=<password>
-  export SNOWFLAKE_ROLE=SYSADMIN                        # optional, defaults to SYSADMIN
+  export SNOWFLAKE_ROLE=SYSADMIN                        
 """
 
 import os
@@ -20,18 +20,6 @@ def get_connection(database="NYC_TAXI", schema="RAW"):
     """
     Open and return a Snowflake connection.
 
-    Parameters
-    ----------
-    database : str
-        Target Snowflake database.  Defaults to 'NYC_TAXI' (dev).
-    schema : str
-        Target schema within that database.  Defaults to 'RAW'.
-
-    Returns
-    -------
-    snowflake.connector.SnowflakeConnection
-        An open connection.  Callers are responsible for closing it (or using
-        it as a context manager).
     """
     return snowflake.connector.connect(
         account=os.environ["SNOWFLAKE_ACCOUNT"],
@@ -51,8 +39,6 @@ def ensure_raw_table(conn):
     This table is the landing zone for all TLC Parquet loads.  dbt reads from
     it via the 'yellow_tripdata' source defined in models/sources.yml.
 
-    Column names match the renamed/snake_cased fields produced by
-    scripts/load_to_snowflake.py.
     """
     ddl = """
     CREATE TABLE IF NOT EXISTS RAW.YELLOW_TRIPDATA (
@@ -90,21 +76,6 @@ def load_dataframe(conn, df, table_name="YELLOW_TRIPDATA", schema="RAW"):
     write_pandas uses the Snowflake PUT + COPY pattern internally, which is
     significantly faster than row-by-row INSERT for large datasets.
 
-    Parameters
-    ----------
-    conn : snowflake.connector.SnowflakeConnection
-    df   : pandas.DataFrame
-        Must have column names that already match the target table (upper-cased
-        by write_pandas automatically).
-    table_name : str
-        Target table name (default 'YELLOW_TRIPDATA').
-    schema : str
-        Target schema (default 'RAW').
-
-    Returns
-    -------
-    tuple
-        (success, num_chunks, num_rows, output) as returned by write_pandas.
     """
     success, num_chunks, num_rows, output = write_pandas(
         conn=conn,

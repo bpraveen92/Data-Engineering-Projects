@@ -2,12 +2,10 @@
         dbt-snapshot dbt-docs backfill pytest ci \
         airflow-install airflow-init airflow-start airflow-stop airflow-reset
 
-UV           := uv
-DBT          := dbt
 AIRFLOW_HOME := $(shell pwd)/airflow
 
 install:
-	$(UV) pip install -e ".[dev]"
+	uv pip install -e ".[dev]"
 
 clean:
 	rm -rf target/ dbt_packages/ __pycache__ .pytest_cache
@@ -19,37 +17,33 @@ load:
 	python scripts/load_to_snowflake.py --month $(MONTH)
 
 dbt-deps:
-	$(DBT) deps
+	dbt deps
 
 dbt-seed:
-	$(DBT) seed
+	dbt seed
 
 dbt-run:
-	$(DBT) run --target dev
+	dbt run --target dev
 
 dbt-test:
-	$(DBT) test --target dev
+	dbt test --target dev
 
 dbt-snapshot:
-	$(DBT) snapshot --target dev
+	dbt snapshot --target dev
 
 dbt-docs:
-	$(DBT) docs generate && $(DBT) docs serve
+	dbt docs generate && dbt docs serve
 
 backfill:
-	$(DBT) run --vars '{"start_date": "$(START)", "end_date": "$(END)"}' --full-refresh
+	dbt run --vars '{"start_date": "$(START)", "end_date": "$(END)"}' --full-refresh
 
 pytest:
 	pytest tests_pytest/ -v
 
 ci: dbt-seed dbt-run dbt-test pytest
 
-# ---------------------------------------------------------------------------
-# Airflow orchestration
-# ---------------------------------------------------------------------------
-
 airflow-install:
-	$(UV) pip install -e ".[orchestration]"
+	uv pip install -e ".[orchestration]"
 
 airflow-init:
 	AIRFLOW_HOME=$(AIRFLOW_HOME) \

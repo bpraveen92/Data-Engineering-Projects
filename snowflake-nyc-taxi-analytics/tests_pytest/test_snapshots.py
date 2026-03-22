@@ -1,18 +1,12 @@
 """
 test_snapshots.py — Integration tests for zone_attributes_snapshot (SCD Type 2).
 
-These tests verify the structural correctness of the snapshot table:
-  - dbt_scd_id is unique (it's the snapshot's surrogate PK)
-  - Current rows (dbt_valid_to IS NULL) exist for all seeded zones
-  - After a simulated zone update, old record is expired and new record is active
-
-Note: test_snapshot_captures_borough_change is a manual verification test that
-requires you to:
+The test_snapshot_captures_borough_change is a manual verification test that
+requires these three things to be done in an order:
   1. Edit one borough value in seeds/taxi_zones.csv
   2. Run `make dbt-seed && make dbt-snapshot`
   3. Then run this test
 
-The other tests run immediately after the first `make dbt-snapshot`.
 """
 
 import pytest
@@ -115,8 +109,6 @@ class TestSnapshotSCDHistory:
             ) multi_version_zones
             JOIN {SNAPSHOT_TABLE} snap USING (zone_id)
             WHERE snap.dbt_valid_to IS NULL
-              -- Count per zone should be exactly 1 (only one current row)
-              -- We're checking no zone has 2+ rows with valid_to = NULL
             QUALIFY COUNT(*) OVER (PARTITION BY snap.zone_id) > 1
             """
         )
@@ -145,13 +137,6 @@ class TestSnapshotSCDHistory:
 
     def test_snapshot_captures_borough_change(self, snowflake_conn):
         """
-        Manual verification test: run after editing a zone's borough in the seed.
-
-        To trigger this scenario:
-          1. Edit seeds/taxi_zones.csv — change zone_id 4 borough from 'Manhattan' to 'Brooklyn'
-          2. make dbt-seed && make dbt-snapshot
-          3. Run this test
-
         Expected outcome:
           - One expired row: zone_id=4, borough='Manhattan', dbt_valid_to IS NOT NULL
           - One current row: zone_id=4, borough='Brooklyn', dbt_valid_to IS NULL
