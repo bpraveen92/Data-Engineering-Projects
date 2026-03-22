@@ -71,8 +71,8 @@ def create_spark_session(use_localstack=False):
     builder = (
         SparkSession.builder
         .appName("MusicStreamingAggregator")
-        # Reduce shuffle output partitions from the default of 200 to avoid
-        # hundreds of tiny part files per micro-batch with small local data.
+        # I'm reducing shuffle partitions from the default 200 — otherwise each
+        # micro-batch produces hundreds of tiny part files on small local data.
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.streaming.schemaInference", "true")
@@ -407,9 +407,8 @@ def write_to_s3(df, output_path, table_name, checkpoint_path='/tmp/spark_checkpo
             f"~{estimated_bytes / 1024:.1f}KB estimated → coalescing to {num_files} file(s)"
         )
 
-        # mode("append"): safe because outputMode("append") only delivers finalized
-        # windows (past the watermark) — each window partition is written exactly once,
-        # so there is no risk of duplicate rows.
+        # append mode is safe here because outputMode("append") only delivers windows
+        # past the watermark — each window is written exactly once, no duplicates.
         batch_df.coalesce(num_files) \
             .write \
             .mode("append") \
@@ -537,9 +536,8 @@ def main():
                         ))
     parser.add_argument('--local', action='store_true', help='Use LocalStack')
 
-    # parse_known_args() instead of parse_args() so that Glue's internally
-    # injected arguments (--JOB_NAME, --job-bookmark-option, --TempDir, etc.)
-    # are silently ignored rather than causing argparse to exit with SystemExit: 2.
+    # I'm using parse_known_args() so Glue's injected arguments (--JOB_NAME, --TempDir, etc.)
+    # are silently ignored instead of causing argparse to exit with SystemExit: 2.
     args, unknown = parser.parse_known_args()
     if unknown:
         logger.warning(

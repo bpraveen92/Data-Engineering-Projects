@@ -62,10 +62,8 @@ def silver_order_lifecycle():
         .withWatermark("final_event_at", "90 days")
     )
 
-    # Stream-stream left outer join requires both watermarks AND an explicit time
-    # range condition bounding the gap between the two sides. Without the range
-    # condition Spark cannot determine when it is safe to emit a NULL right-side
-    # row for an unmatched created event.
+    # I need both watermarks AND an explicit time range condition here — Spark requires
+    # the range bound to know when it's safe to emit a NULL for an unmatched created event.
     joined = created.join(
         terminal,
         (created["order_id"] == terminal["order_id"])

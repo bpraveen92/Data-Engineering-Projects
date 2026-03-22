@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: mart_hourly_demand
+    description: >
+      Trip demand aggregated by hour-of-day (0–23) and day-of-week (1–7).
+      Grain: one row per (pickup_hour, pickup_day_of_week) — 168 rows maximum.
+      Ideal for heatmap visualizations of NYC taxi demand patterns.
+    columns:
+      - name: pickup_hour
+        description: Hour of day the trip started (0 = midnight, 23 = 11pm).
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 23
+
+      - name: pickup_day_of_week
+        description: Day of week integer (1=Sunday … 7=Saturday in Snowflake).
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 7
+
+      - name: pickup_day_name
+        description: Human-readable day name.
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday]
+
+      - name: time_of_day
+        description: Named time bucket from classify_time_of_day macro.
+        data_tests:
+          - accepted_values:
+              values: [morning_rush, midday, evening_rush, evening, overnight]
+
+      - name: trip_count
+        description: Total trip count across all loaded months for this hour/weekday slot.
+        data_tests:
+          - not_null
+
+      - name: avg_trip_distance
+        description: Average trip distance in miles for this slot.
+
+      - name: avg_fare
+        description: Average metered fare in USD for this slot.
+
+      - name: pct_airport_trips
+        description: Fraction of trips going to/from airports (0–1 range).
+
+      - name: avg_trips_per_day
+        description: Average number of trips per calendar day for this hour/weekday slot.

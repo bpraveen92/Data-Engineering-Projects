@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: mart_revenue_by_zone
+    description: >
+      Monthly revenue and trip volume aggregated by pickup taxi zone.
+      Grain: one row per (pickup_location_id, year_month).
+      Referenced by the 'NYC Taxi Revenue Dashboard' exposure.
+    columns:
+      - name: pickup_location_id
+        description: TLC zone ID of the trip origin.
+        data_tests:
+          - not_null
+
+      - name: year_month
+        description: YYYY-MM string for the month.
+        data_tests:
+          - not_null
+
+      - name: trip_count
+        description: Number of trips originating in this zone this month.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+
+      - name: total_fare
+        description: Sum of metered fare amounts for all trips in this zone-month.
+        data_tests:
+          - not_null
+
+      - name: total_revenue
+        description: Sum of total_amount (fare + surcharges, excludes cash tips).
+        data_tests:
+          - not_null
+
+      - name: avg_fare_per_trip
+        description: Average metered fare per trip (safe_divide protected against zero trip_count).
+        data_tests:
+          - not_null
+
+      - name: avg_tip_pct
+        description: Average tip as percentage of fare (credit card trips only; 0 for cash).
+
+      - name: airport_trip_count
+        description: Count of trips in this zone that started or ended at a NYC airport.

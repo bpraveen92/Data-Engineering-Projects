@@ -30,8 +30,8 @@ import pandas as pd
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(__file__))
 UTILS_DIR   = os.path.join(PROJECT_DIR, "utils")
-# Add utils/ directly so jolpica and openf1 are importable as standalone modules,
-# which avoids triggering utils/__init__.py (which imports delta — Databricks-only).
+# I'm adding utils/ directly so jolpica and openf1 are importable as standalone modules —
+# importing via the package would trigger utils/__init__.py which imports delta (Databricks-only).
 sys.path.insert(0, UTILS_DIR)
 from jolpica import JolpicaClient
 from openf1 import OpenF1Client

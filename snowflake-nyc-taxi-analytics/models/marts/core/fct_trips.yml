@@ -1,0 +1,181 @@
+version: 2
+
+models:
+  - name: fct_trips
+    description: >
+      Central fact table for NYC Yellow Taxi trips.
+      Grain: one row per trip.  Incremental model keyed on trip_id.
+      Clustered by pickup_date for efficient date-range queries.
+
+    config:
+      contract:
+        enforced: true
+
+    columns:
+      - name: trip_id
+        description: Surrogate key — MD5 hash of vendor_id, pickup_datetime, pickup_location_id.
+        data_type: varchar
+        data_tests:
+          - not_null
+          - unique
+
+      - name: vendor_id
+        description: Technology provider ID (1=CMT, 2=VeriFone, 6=Myle).
+        data_type: integer
+        data_tests:
+          - not_null
+
+      - name: pickup_location_id
+        description: TLC Taxi Zone where the meter was engaged.
+        data_type: integer
+        data_tests:
+          - not_null
+
+      - name: dropoff_location_id
+        description: TLC Taxi Zone where the meter was disengaged.
+        data_type: integer
+        data_tests:
+          - not_null
+
+      - name: payment_type
+        description: Payment method code.
+        data_type: integer
+
+      - name: pickup_datetime
+        description: Timestamp when the meter was engaged.
+        data_type: timestamp_ntz
+        data_tests:
+          - not_null
+
+      - name: dropoff_datetime
+        description: Timestamp when the meter was disengaged.
+        data_type: timestamp_ntz
+        data_tests:
+          - not_null
+
+      - name: pickup_date
+        description: Date portion of pickup_datetime — clustering key.
+        data_type: date
+        data_tests:
+          - not_null
+
+      - name: pickup_hour
+        description: Hour of day the trip started (0–23).
+        data_type: integer
+
+      - name: pickup_day_of_week
+        description: Day of week integer (1=Sunday … 7=Saturday in Snowflake).
+        data_type: integer
+
+      - name: pickup_day_name
+        description: Human-readable day name (Monday, Tuesday …).
+        data_type: varchar
+
+      - name: time_of_day
+        description: >
+          Named time bucket: morning_rush, midday, evening_rush, evening, overnight.
+          Derived via classify_time_of_day macro.
+        data_type: varchar
+        data_tests:
+          - accepted_values:
+              values: [morning_rush, midday, evening_rush, evening, overnight]
+
+      - name: passenger_count
+        description: Number of passengers as reported by the driver.
+        data_type: integer
+
+      - name: trip_distance
+        description: Trip distance in miles.
+        data_type: float
+
+      - name: trip_duration_minutes
+        description: Trip duration derived as datediff(dropoff, pickup).
+        data_type: integer
+
+      - name: rate_code_id
+        description: Rate code in effect at end of trip.
+        data_type: integer
+
+      - name: store_and_fwd_flag
+        description: Y/N whether trip record was held in vehicle memory.
+        data_type: varchar
+
+      - name: is_airport_trip
+        description: True when pickup or dropoff is at JFK, LaGuardia, or Newark.
+        data_type: boolean
+
+      - name: fare_amount
+        description: Metered fare in USD.
+        data_type: float
+
+      - name: extra
+        description: Miscellaneous extras and surcharges.
+        data_type: float
+
+      - name: mta_tax
+        description: $0.50 MTA tax.
+        data_type: float
+
+      - name: tip_amount
+        description: Tip amount (credit card tips only).
+        data_type: float
+
+      - name: tolls_amount
+        description: Total tolls paid.
+        data_type: float
+
+      - name: improvement_surcharge
+        description: $0.30 improvement surcharge.
+        data_type: float
+
+      - name: congestion_surcharge
+        description: NYC congestion surcharge for Manhattan south of 96th St.
+        data_type: float
+
+      - name: airport_fee
+        description: Airport pickup surcharge ($1.25 LGA / $1.75 JFK).
+        data_type: float
+
+      - name: total_amount
+        description: Total charged to passenger.
+        data_type: float
+
+      - name: tip_pct
+        description: Tip as a percentage of fare_amount (safe_divide protected).
+        data_type: float
+
+      - name: vendor_name
+        description: Human-readable vendor name from vendor_names seed.
+        data_type: varchar
+
+      - name: payment_type_name
+        description: Human-readable payment type from payment_types seed.
+        data_type: varchar
+
+      - name: pickup_borough
+        description: NYC borough name for pickup zone.
+        data_type: varchar
+
+      - name: pickup_zone
+        description: Pickup zone name from taxi_zones seed.
+        data_type: varchar
+
+      - name: pickup_service_zone
+        description: Service zone classification for pickup (Yellow Zone, Boro Zone, Airports, EWR).
+        data_type: varchar
+
+      - name: dropoff_borough
+        description: NYC borough name for dropoff zone.
+        data_type: varchar
+
+      - name: dropoff_zone
+        description: Dropoff zone name from taxi_zones seed.
+        data_type: varchar
+
+      - name: _loaded_at
+        description: UTC timestamp when the row was loaded by scripts/load_to_snowflake.py.
+        data_type: timestamp_ntz
+
+      - name: _source_month
+        description: YYYY-MM identifying which monthly Parquet file this row came from.
+        data_type: varchar
