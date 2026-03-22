@@ -9,7 +9,7 @@ models:
     columns:
       - name: pickup_hour
         description: Hour of day the trip started (0 = midnight, 23 = 11pm).
-        tests:
+        data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: 0
@@ -17,7 +17,7 @@ models:
 
       - name: pickup_day_of_week
         description: Day of week integer (1=Sunday … 7=Saturday in Snowflake).
-        tests:
+        data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: 1
@@ -25,20 +25,20 @@ models:
 
       - name: pickup_day_name
         description: Human-readable day name.
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
               values: [Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday]
 
       - name: time_of_day
         description: Named time bucket from classify_time_of_day macro.
-        tests:
+        data_tests:
           - accepted_values:
               values: [morning_rush, midday, evening_rush, evening, overnight]
 
       - name: trip_count
         description: Total trip count across all loaded months for this hour/weekday slot.
-        tests:
+        data_tests:
           - not_null
 
       - name: avg_trip_distance

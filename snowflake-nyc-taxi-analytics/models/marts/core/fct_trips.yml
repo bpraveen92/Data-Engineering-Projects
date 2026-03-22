@@ -15,26 +15,26 @@ models:
       - name: trip_id
         description: Surrogate key — MD5 hash of vendor_id, pickup_datetime, pickup_location_id.
         data_type: varchar
-        tests:
+        data_tests:
           - not_null
           - unique
 
       - name: vendor_id
         description: Technology provider ID (1=CMT, 2=VeriFone, 6=Myle).
         data_type: integer
-        tests:
+        data_tests:
           - not_null
 
       - name: pickup_location_id
         description: TLC Taxi Zone where the meter was engaged.
         data_type: integer
-        tests:
+        data_tests:
           - not_null
 
       - name: dropoff_location_id
         description: TLC Taxi Zone where the meter was disengaged.
         data_type: integer
-        tests:
+        data_tests:
           - not_null
 
       - name: payment_type
@@ -44,19 +44,19 @@ models:
       - name: pickup_datetime
         description: Timestamp when the meter was engaged.
         data_type: timestamp_ntz
-        tests:
+        data_tests:
           - not_null
 
       - name: dropoff_datetime
         description: Timestamp when the meter was disengaged.
         data_type: timestamp_ntz
-        tests:
+        data_tests:
           - not_null
 
       - name: pickup_date
         description: Date portion of pickup_datetime — clustering key.
         data_type: date
-        tests:
+        data_tests:
           - not_null
 
       - name: pickup_hour
@@ -76,7 +76,7 @@ models:
           Named time bucket: morning_rush, midday, evening_rush, evening, overnight.
           Derived via classify_time_of_day macro.
         data_type: varchar
-        tests:
+        data_tests:
           - accepted_values:
               values: [morning_rush, midday, evening_rush, evening, overnight]
 

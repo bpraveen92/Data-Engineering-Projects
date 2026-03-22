@@ -9,34 +9,34 @@ models:
     columns:
       - name: pickup_location_id
         description: TLC zone ID of the trip origin.
-        tests:
+        data_tests:
           - not_null
 
       - name: year_month
         description: YYYY-MM string for the month.
-        tests:
+        data_tests:
           - not_null
 
       - name: trip_count
         description: Number of trips originating in this zone this month.
-        tests:
+        data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: 1
 
       - name: total_fare
         description: Sum of metered fare amounts for all trips in this zone-month.
-        tests:
+        data_tests:
           - not_null
 
       - name: total_revenue
         description: Sum of total_amount (fare + surcharges, excludes cash tips).
-        tests:
+        data_tests:
           - not_null
 
       - name: avg_fare_per_trip
         description: Average metered fare per trip (safe_divide protected against zero trip_count).
-        tests:
+        data_tests:
           - not_null
 
       - name: avg_tip_pct

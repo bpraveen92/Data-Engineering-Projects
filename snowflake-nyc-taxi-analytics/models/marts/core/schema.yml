@@ -9,22 +9,22 @@ models:
     columns:
       - name: zone_id
         description: Primary key — TLC-assigned zone identifier.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: borough
         description: NYC borough (Manhattan, Queens, Brooklyn, Bronx, Staten Island, EWR, Unknown).
-        tests:
+        data_tests:
           - not_null
       - name: zone_name
         description: TLC-assigned zone name.
-        tests:
+        data_tests:
           - not_null
       - name: service_zone
         description: >
           Service classification: Yellow Zone (Manhattan core), Boro Zone,
           Airports, EWR, or N/A.
-        tests:
+        data_tests:
           - not_null
       - name: is_airport
         description: True for JFK Airport, LaGuardia Airport, and Newark Airport zones.
@@ -40,10 +40,10 @@ models:
     columns:
       - name: date_day
         description: Primary key — calendar date.
-        tests:
+        data_tests:
           - not_null
           - unique
       - name: year_month
         description: YYYY-MM string for month-level grouping in mart aggregations.
-        tests:
+        data_tests:
           - not_null
