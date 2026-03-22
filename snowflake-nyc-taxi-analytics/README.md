@@ -107,7 +107,7 @@ make dbt-snapshot
 make dbt-docs
 ```
 
-See [docs/EXECUTION.md](docs/EXECUTION.md) for the full step-by-step guide including Airflow setup and backfill instructions.
+See [docs/EXECUTION.md](docs/EXECUTION.md) for the full step-by-step guide including backfill instructions.
 
 ## Snowflake Schema Layout
 
@@ -120,6 +120,24 @@ See [docs/EXECUTION.md](docs/EXECUTION.md) for the full step-by-step guide inclu
 | `SNAPSHOTS` | `ZONE_ATTRIBUTES_SNAPSHOT` |
 
 The `DEV_` prefix is applied automatically in dev by the `generate_schema_name` macro.
+
+## Orchestration
+
+The pipeline is orchestrated by a daily Airflow DAG (`dags/nyc_taxi_pipeline.py`) using **astronomer-cosmos**, which reads `target/manifest.json` and expands each dbt model into its own Airflow task — preserving dependency order. This gives per-model lineage, retries, and failure visibility in the Airflow UI rather than treating the entire `dbt run` as a single opaque task.
+
+```
+dbt_seed → dbt_models (DbtTaskGroup, one task per model) → dbt_snapshot → dbt_test
+```
+
+I run cosmos locally with `InvocationMode.SUBPROCESS` to avoid a fork-safety deadlock. For a managed environment (MWAA, Astronomer) I switch to `InvocationMode.DBT_RUNNER` via `AIRFLOW_ENV=prod`.
+
+```bash
+make airflow-install
+make airflow-init
+make airflow-start
+```
+
+See [docs/EXECUTION.md](docs/EXECUTION.md) for the full Airflow setup walkthrough.
 
 ## Project Structure
 

@@ -27,7 +27,7 @@ An end-to-end analytics platform on Databricks ingesting Formula 1 data from two
 ### [Ride-Sharing Trip Lifecycle Pipeline](ridesharing-trip-lifecycle-pipeline/)
 **Stack:** Kinesis · Lambda · DynamoDB · AWS Glue · Athena · LocalStack
 
-An event-driven pipeline that joins trip start and trip end streams through DynamoDB, stages completed trips to S3, and runs hourly Glue aggregations queryable via Athena. Handles out-of-order events, missing start records, and late arrivals without full rescans.
+Two asynchronous Kinesis streams — one for trip start events, one for trip end events — each consumed by a Lambda that writes into DynamoDB. DynamoDB acts as the correlation store, matching start and end events into complete trip records which are then staged to S3. Hourly Glue PySpark jobs aggregate the staged trips into summaries queryable via Athena. Handles out-of-order events, missing start records, and late arrivals without full rescans.
 
 ---
 
