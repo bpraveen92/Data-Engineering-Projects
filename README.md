@@ -2,7 +2,7 @@
 
 I've spent the past 10 years working in the analytics and data engineering space in the US — most recently as a Senior Business Intelligence Engineer at Amazon, and before that across a range of analytics roles since completing my Master's in Computer Science in 2016. Throughout that time, I've designed and built data pipelines across a range of domains — from architecting ingestion frameworks that consolidate data from multiple upstream systems to designing the modelling and transformation layers that make that data reliable and queryable at scale. Data engineering has been a consistent thread through my career, not just as a means to an end but as the layer I find most technically interesting to get right.
 
-I recently relocated back to India and am currently on a career break. These projects are something I built over the past few weeks — partly to stay sharp, partly because I genuinely enjoyed having uninterrupted time to build the kinds of end-to-end analytics pipelines I've always cared about: ones that pull from disparate upstream sources with different schemas, latencies, and reliability characteristics, and turn that into something clean and queryable at the other end.
+I recently relocated back to India and am currently on a career break. I used the time to pick up tools I hadn't had the chance to use professionally — Databricks, dbt, and Airflow — and built these projects to put that understanding into practice and see how the pieces fit together end-to-end.
 
 Each project is self-contained with its own README, runbooks, tests, and deployment documentation.
 
