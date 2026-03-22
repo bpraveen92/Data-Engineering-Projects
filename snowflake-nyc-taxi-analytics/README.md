@@ -22,7 +22,6 @@ The project demonstrates the ELT pattern: raw Parquet files are bulk-loaded into
 | **Singular SQL tests** | Four custom assertions: future pickups, fare integrity, trip duration bounds, zone FK coverage |
 | **Error vs warn severity** | Code bugs → error; known TLC source quality issues → warn |
 | **Pytest integration tests** | Python assertions against live Snowflake: revenue reconciliation, uniqueness, snapshot integrity |
-| **Exposures** | Three downstream consumers declared in `exposures.yml` — BI dashboards and ML feature store |
 | **Airflow + astronomer-cosmos** | `DbtTaskGroup` with per-model tasks; `LoadMode.DBT_MANIFEST` to avoid DAG parse timeout |
 | **Source freshness check** | `sources.yml` — warn after 12h, error after 24h on `_loaded_at` |
 
@@ -174,7 +173,6 @@ snowflake-nyc-taxi-analytics/
 │   └── test_snapshots.py
 ├── dags/
 │   └── nyc_taxi_pipeline.py     # Airflow DAG with astronomer-cosmos DbtTaskGroup
-├── exposures.yml
 └── docs/
     ├── ARCHITECTURE.md
     └── EXECUTION.md

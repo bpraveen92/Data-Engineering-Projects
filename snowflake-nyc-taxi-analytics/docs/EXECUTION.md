@@ -177,7 +177,7 @@ make pytest
 make dbt-docs
 # runs: dbt docs generate && dbt docs serve
 # opens http://localhost:8080 in a browser
-# the lineage DAG shows: source → staging → intermediate (ephemeral) → marts → exposures
+# the lineage DAG shows: source → staging → intermediate (ephemeral) → marts
 # every column has a description; every test is linked to its model
 ```
 
