@@ -50,11 +50,3 @@ Same Spotify dataset as the batch pipeline, rebuilt as a streaming model. A Kine
 
 An analytics engineering pipeline on 9.5M NYC TLC Yellow Taxi trip records — the only project in this portfolio with a dedicated transformation layer. All transformation logic lives in version-controlled, tested dbt SQL models: an incremental fact table with MERGE strategy and clustering key, SCD Type 2 zone snapshot via `strategy='check'`, enforced model contract on `fct_trips`, and a custom `generate_schema_name` macro for dev/prod schema isolation. Orchestrated by a daily Airflow DAG using astronomer-cosmos, which exposes each dbt model as its own independently-retryable task.
 
----
-
-## What's Consistent Across Projects
-
-- **Local-first development** — every pipeline runs in Docker against LocalStack (and MinIO for Project 2) before touching AWS. `make up && make docker-all && make down` is the full local cycle.
-- **Manual AWS deployment** — I set up AWS resources through the Console rather than IaC. It forces a deeper understanding of what each resource does and keeps the focus on the pipeline logic.
-- **Tests included** — each project has a pytest suite covering the core logic. No mocking of the actual pipeline behaviour — only AWS calls are mocked where needed.
-- **Documented decisions** — each README has a "Key Decisions" section explaining why the architecture looks the way it does, including things I tried first that didn't work.
