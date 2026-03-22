@@ -4,7 +4,7 @@ with trips as (
     select * from {{ ref('fct_trips') }}
 ),
 
--- distinct date count per slot used to compute avg_trips_per_day below
+-- I'm computing distinct date count per slot here so I can normalise to avg_trips_per_day below
 date_counts as (
     select
         pickup_hour,

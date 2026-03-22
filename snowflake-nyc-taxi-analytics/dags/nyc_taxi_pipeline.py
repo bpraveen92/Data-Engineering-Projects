@@ -45,7 +45,7 @@ with DAG(
     dag_id="nyc_taxi_pipeline",
     description="Daily ELT: seed → dbt models → snapshot → test",
     schedule="0 6 * * *",
-    start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    start_date=datetime(2026, 3, 10, tzinfo=timezone.utc),
     catchup=False,
     default_args={
         "owner": "data-engineering",

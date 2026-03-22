@@ -1,4 +1,4 @@
-.PHONY: install clean lint fmt download load dbt-deps dbt-seed dbt-run dbt-test \
+.PHONY: install clean download load dbt-deps dbt-seed dbt-run dbt-test \
         dbt-snapshot dbt-docs backfill pytest ci \
         airflow-install airflow-init airflow-start airflow-stop airflow-reset
 
@@ -11,12 +11,6 @@ install:
 
 clean:
 	rm -rf target/ dbt_packages/ __pycache__ .pytest_cache
-
-lint:
-	ruff check .
-
-fmt:
-	ruff format .
 
 download:
 	python scripts/download_data.py --months $(MONTHS)
@@ -48,7 +42,7 @@ backfill:
 pytest:
 	pytest tests_pytest/ -v
 
-ci: lint dbt-seed dbt-run dbt-test pytest
+ci: dbt-seed dbt-run dbt-test pytest
 
 # ---------------------------------------------------------------------------
 # Airflow orchestration

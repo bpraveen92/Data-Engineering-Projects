@@ -41,7 +41,7 @@ enriched as (
         t.pickup_date,
         t.trip_duration_minutes,
         hour(t.pickup_datetime)                             as pickup_hour,
-        -- Snowflake DAYOFWEEK returns 0=Sunday…6=Saturday; +1 shifts to 1=Sunday…7=Saturday
+        -- Snowflake DAYOFWEEK returns 0=Sunday…6=Saturday; I'm adding +1 to shift it to 1=Sunday…7=Saturday
         dayofweek(t.pickup_datetime) + 1                    as pickup_day_of_week,
         decode(dayofweek(t.pickup_datetime) + 1,
             1, 'Sunday', 2, 'Monday', 3, 'Tuesday',

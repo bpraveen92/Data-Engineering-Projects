@@ -1,4 +1,4 @@
--- payment types 3=no-charge, 4=dispute, 6=voided may legitimately have fare_amount <= 0
+-- I'm excluding payment types 3=no-charge, 4=dispute, 6=voided as they may legitimately have fare_amount <= 0
 {{ config(severity = 'warn') }}
 
 select

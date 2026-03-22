@@ -45,7 +45,7 @@ renamed as (
         and dropoff_datetime is not null
         and dropoff_datetime > pickup_datetime
     qualify
-        -- TLC source data contains duplicate rows; keep the first-loaded copy
+        -- I found duplicate rows in the TLC source data, so I'm keeping the first-loaded copy
         row_number() over (
             partition by vendor_id, pickup_datetime, pickup_location_id
             order by _loaded_at

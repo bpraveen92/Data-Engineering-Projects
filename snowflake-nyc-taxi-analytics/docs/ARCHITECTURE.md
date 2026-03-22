@@ -4,7 +4,7 @@
 
 This is the sixth project in my data engineering portfolio, and it fills a specific gap that all five previous projects share: none of them have a proper transformation layer. In the batch ETL project I used PySpark to transform data inside Airflow. In the Databricks projects I used notebooks. The transformation logic was always entangled with the orchestration or the compute framework. This project is my answer to that — it demonstrates **analytics engineering**, the practice of managing all transformation logic as version-controlled, tested, documented SQL using dbt.
 
-The dataset is NYC TLC Yellow Taxi Trip Records — public Parquet files published monthly by the NYC Taxi & Limousine Commission. I chose it because it has a natural star schema (trips as facts, zones and vendors as dimensions), has realistic volume (~8M rows/month), and requires no API keys or sign-ups. It is also completely different domain from everything else in my portfolio, which matters when showing breadth.
+The dataset is NYC TLC Yellow Taxi Trip Records — public Parquet files published monthly by the NYC Taxi & Limousine Commission. I chose it because it has a natural star schema (trips as facts, zones and vendors as dimensions), has realistic volume (~3M rows/month), and requires no API keys or sign-ups. It is also completely different domain from everything else in my portfolio, which matters when showing breadth.
 
 ---
 
@@ -12,17 +12,11 @@ The dataset is NYC TLC Yellow Taxi Trip Records — public Parquet files publish
 
 ```mermaid
 flowchart LR
-    subgraph E["Extract"]
-        tlc[("TLC Cloudfront\npublic Parquet\n~8M rows/month")]
-        dl["download_data.py"]
-    end
-    subgraph L["Load"]
-        ld["load_to_snowflake.py\npandas → write_pandas\nPUT + COPY INTO"]
-        raw[("Snowflake · RAW\nYELLOW_TRIPDATA\nappend-only")]
-    end
-    subgraph T["Transform"]
-        dbt["dbt run\nStaging → Intermediate\n→ Marts\n\ndbt test"]
-    end
+    tlc[("TLC Cloudfront\npublic Parquet")]
+    dl["download_data.py"]
+    ld["load_to_snowflake.py"]
+    raw[("Snowflake · RAW\nYELLOW_TRIPDATA")]
+    dbt["dbt run\nStaging → Intermediate → Marts"]
 
     tlc --> dl --> ld --> raw --> dbt
 ```
@@ -40,7 +34,7 @@ The split is intentional. The raw table in Snowflake is the single source of tru
 ```
 Database: NYC_TAXI
 ├── RAW                       ← loaded by scripts/load_to_snowflake.py
-│   ├── YELLOW_TRIPDATA       ← 24M rows of raw trip data (Jan–Mar 2024)
+│   ├── YELLOW_TRIPDATA       ← 9.5M rows of raw trip data (Jan–Mar 2024)
 │   ├── TAXI_ZONES            ← 265-row seed (dbt seed)
 │   ├── PAYMENT_TYPES         ← 6-row seed
 │   └── VENDOR_NAMES          ← 3-row seed

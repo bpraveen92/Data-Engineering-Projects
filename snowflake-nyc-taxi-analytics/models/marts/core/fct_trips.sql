@@ -14,7 +14,7 @@ with enriched as (
 
     {% if is_incremental() %}
         {% if var('start_date', none) is not none %}
-            -- Backfill mode: explicit date window passed via --vars
+            -- Backfill mode: I pass an explicit date window via --vars to reprocess a specific range
             where pickup_date between '{{ var("start_date") }}' and '{{ var("end_date") }}'
         {% else %}
             where pickup_date > (select max(pickup_date) from {{ this }})

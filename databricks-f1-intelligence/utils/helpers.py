@@ -88,10 +88,8 @@ def merge_delta(spark, df, full_table_name, merge_keys):
         # First run  → creates table, enables CDF + Liquid Clustering
         # Subsequent → MERGE ON target.season=source.season AND ...
     """
-    # Deduplicate source rows by merge keys before writing or merging.
-    # Prevents Delta MERGE ambiguity when the source contains multiple rows
-    # sharing the same key — e.g. after a range-join that produces duplicates,
-    # or when a CDF batch contains several postimage commits for the same key.
+    # I'm deduplicating on merge keys before the MERGE to prevent Delta ambiguity —
+    # range-joins and CDF batches can both produce multiple rows for the same key.
     df = df.dropDuplicates(merge_keys)
 
     if not table_exists(spark, full_table_name):

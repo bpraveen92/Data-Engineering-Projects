@@ -1,4 +1,4 @@
--- 300-min ceiling catches meter-left-on phantom trips; warn because TLC source has real outliers
+-- I'm using a 300-min ceiling to catch meter-left-on phantom trips; severity is warn because TLC source has real outliers
 {{ config(severity = 'warn') }}
 
 select

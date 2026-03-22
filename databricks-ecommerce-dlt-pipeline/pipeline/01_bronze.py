@@ -218,8 +218,8 @@ def bronze_customer_updates():
     )
 
 
-# For-loop: one @dlt.view per order status. The default-arg trick (status=status)
-# captures the loop variable by value so each closure filters on the correct status.
+# I'm using the default-arg trick (status=status) to capture the loop variable by value —
+# without it, every closure would close over the same final value of status.
 order_statuses = ["created", "approved", "shipped", "delivered", "canceled"]
 
 for status in order_statuses:

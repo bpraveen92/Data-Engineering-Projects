@@ -20,7 +20,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4",
-    "ruff>=0.4",
 ]
 orchestration = [
     "apache-airflow>=2.9,<3.0",
@@ -33,5 +32,3 @@ packages = ["utils"]
 [tool.pytest.ini_options]
 testpaths = ["tests_pytest"]
 
-[tool.ruff]
-line-length = 100

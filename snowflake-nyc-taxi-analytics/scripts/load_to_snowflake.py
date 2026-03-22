@@ -33,8 +33,8 @@ from utils.snowflake_loader import ensure_raw_table, get_connection, load_datafr
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "raw"
 
-# Mapping from TLC column names → clean snake_case names used in Snowflake + dbt models.
-# Keeping this explicit makes schema evolution easy to track in git history.
+# I'm mapping TLC's raw column names to clean snake_case here explicitly so that
+# any schema changes are easy to track in git history.
 COLUMN_RENAMES = {
     "VendorID": "vendor_id",
     "tpep_pickup_datetime": "pickup_datetime",
@@ -75,25 +75,24 @@ def prepare_dataframe(path, month):
     df = pd.read_parquet(path)
     print(f"           {len(df):,} rows  |  columns: {list(df.columns)}")
 
-    # Rename only the columns we know about; drop any unexpected extras.
+    # I'm renaming only columns I know about and dropping anything unexpected.
     df = df.rename(columns=COLUMN_RENAMES)
     known_cols = list(COLUMN_RENAMES.values())
     df = df[[c for c in known_cols if c in df.columns]]
 
-    # Metadata columns — helps with auditing and incremental debugging.
+    # Adding metadata columns so I can audit loads and debug incremental runs later.
     df["_loaded_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
     df["_source_month"] = month
 
-    # write_pandas serialises datetime64[ns] columns as nanosecond integers in
-    # the internal Parquet transfer file.  Snowflake's COPY INTO interprets those
-    # integers as microseconds, producing dates ~54 million years in the future.
-    # Converting to ISO-format strings sidesteps the precision mismatch: Snowflake
-    # parses the strings correctly against the TIMESTAMP_NTZ column type in DDL.
+    # I ran into a bug where write_pandas serialised datetime64 columns as nanosecond
+    # integers, which Snowflake's COPY INTO misread as microseconds — producing dates
+    # ~54 million years in the future. Converting to ISO strings fixes this: Snowflake
+    # parses them correctly against the TIMESTAMP_NTZ column type.
     datetime_cols = df.select_dtypes(include=["datetime64[ns]", "datetime64[us]"]).columns
     for col in datetime_cols:
         df[col] = df[col].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    # write_pandas requires uppercase column names to match Snowflake identifiers.
+    # write_pandas needs uppercase column names to match Snowflake identifiers.
     df.columns = [c.upper() for c in df.columns]
 
     print(f"[prepared] {len(df):,} rows  |  {len(df.columns)} columns")

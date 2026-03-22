@@ -156,7 +156,7 @@ def get_relevant_hour_prefixes(staging_prefix, lateness_cap_minutes=60, now=None
     current_hour = (now or datetime.utcnow()).replace(minute=0, second=0, microsecond=0)
     lookback_hours = int(lateness_cap_minutes // 60) + 1
     prefixes = []
-    for offset in range(lookback_hours, 0, -1):  # excludes 0 — never list the currently-open hour
+    for offset in range(lookback_hours, 0, -1):  # I'm excluding 0 so I never list the currently-open hour
         h = current_hour - timedelta(hours=offset)
         prefixes.append(
             f"{staging_prefix.rstrip('/')}"

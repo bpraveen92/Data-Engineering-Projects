@@ -87,7 +87,7 @@ make load MONTH=2024-02
 make load MONTH=2024-03
 # each run reads the Parquet with pandas, renames columns to snake_case,
 # and appends to RAW.YELLOW_TRIPDATA via write_pandas
-# expected: ~8M rows per month, ~24M rows total
+# expected: ~3M rows per month, ~9.5M rows total
 ```
 
 Verify in Snowflake:

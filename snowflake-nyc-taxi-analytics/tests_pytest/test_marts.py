@@ -136,7 +136,7 @@ class TestMartHourlyDemand:
         """
         The mart must contain exactly 24 distinct hour values (0 through 23).
         A missing hour means trips in that hour were dropped by the GROUP BY
-        or there is genuinely no data — but with 24M rows, every hour will have trips.
+        or there is genuinely no data — but with 9.5M rows, every hour will have trips.
         """
         rows = query(
             snowflake_conn,

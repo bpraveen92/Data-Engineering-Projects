@@ -29,54 +29,33 @@ The project demonstrates the ELT pattern: raw Parquet files are bulk-loaded into
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Source["Source"]
-        tlc[("TLC Cloudfront\npublic Parquet · ~8M rows/month")]
-    end
+flowchart LR
+    tlc[("TLC Cloudfront\npublic Parquet")]
 
     subgraph Scripts["Extract & Load"]
         dl["download_data.py"]
-        ld["load_to_snowflake.py\npandas → write_pandas\nPUT + COPY INTO"]
+        ld["load_to_snowflake.py"]
     end
 
-    subgraph RAW["Snowflake · RAW Schema"]
-        direction LR
-        trips[("YELLOW_TRIPDATA\n~24M rows · append-only")]
-        seeds[("TAXI_ZONES · PAYMENT_TYPES\nVENDOR_NAMES\ndbt seed")]
+    subgraph RAW["Snowflake · RAW"]
+        trips[("YELLOW_TRIPDATA\n9.5M rows")]
+        seeds[("taxi_zones\npayment_types\nvendor_names")]
     end
 
-    subgraph dbt["dbt Transformation"]
-        subgraph Staging["DEV_STAGING"]
-            stg["stg_yellow_trips\nview · rename · cast · dedup"]
-        end
-        int["int_trips_enriched\nephemeral CTE\njoin to seeds · derive columns"]
-        subgraph Core["DEV_MARTS_CORE"]
-            direction LR
-            fct["fct_trips\nincremental MERGE\nclustered by pickup_date"]
-            dims["dim_taxi_zones\ndim_dates"]
-        end
-        subgraph Finance["DEV_MARTS_FINANCE"]
-            direction LR
-            rev["mart_revenue_by_zone"]
-            demand["mart_hourly_demand"]
-        end
-        subgraph Snap["SNAPSHOTS"]
-            snap["zone_attributes_snapshot\nSCD Type 2"]
-        end
-    end
-
-    subgraph Airflow["Airflow · daily 06:00 UTC"]
-        dag["dbt_seed → dbt_models\n→ dbt_snapshot → dbt_test"]
+    subgraph dbt["dbt · daily via Airflow"]
+        stg["stg_yellow_trips\nview"]
+        int["int_trips_enriched\nephemeral CTE"]
+        fct["fct_trips\nincremental"]
+        dims["dim_taxi_zones\ndim_dates"]
+        marts["mart_revenue_by_zone\nmart_hourly_demand"]
+        snap["zone_attributes_snapshot\nSCD Type 2"]
     end
 
     tlc --> dl --> ld --> trips
-    trips -->|"source()"| stg
-    seeds -->|"ref()"| int
-    stg --> int
-    int --> fct & demand
-    fct --> rev
+    trips --> stg --> int
+    seeds --> int
+    int --> fct --> marts
     seeds --> dims & snap
-    Airflow -.->|"orchestrates"| dbt
 ```
 
 ## Dataset
@@ -88,7 +67,7 @@ flowchart TD
 | 2024-01 | ~2.9M | Initial load |
 | 2024-02 | ~3.0M | |
 | 2024-03 | ~3.6M | |
-| **Total** | **~24M** | |
+| **Total** | **~9.5M** | |
 
 Static lookup tables committed as dbt seeds: 265 taxi zones, 6 payment types, 3 vendor names.
 
@@ -135,7 +114,7 @@ See [docs/EXECUTION.md](docs/EXECUTION.md) for the full step-by-step guide inclu
 
 | Schema | Contents |
 |---|---|
-| `RAW` | `YELLOW_TRIPDATA` (24M rows) + 3 seed tables |
+| `RAW` | `YELLOW_TRIPDATA` (9.5M rows) + 3 seed tables |
 | `DEV_STAGING` / `STAGING` | `STG_YELLOW_TRIPS` (view) |
 | `DEV_MARTS_CORE` / `MARTS_CORE` | `FCT_TRIPS`, `DIM_TAXI_ZONES`, `DIM_DATES` |
 | `DEV_MARTS_FINANCE` / `MARTS_FINANCE` | `MART_REVENUE_BY_ZONE`, `MART_HOURLY_DEMAND` |
