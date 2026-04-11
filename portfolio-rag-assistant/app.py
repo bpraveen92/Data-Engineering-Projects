@@ -25,7 +25,7 @@ if "messages" not in st.session_state:
             "role": "assistant",
             "content": (
                 "Hi! I'm Praveen's portfolio assistant. I can answer questions about his "
-                "6 data engineering projects, technical skills, and professional background. "
+                "7 data engineering projects, technical skills, and professional background. "
                 "What would you like to know?"
             ),
         }
