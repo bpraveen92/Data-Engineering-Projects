@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import chromadb
-import google.generativeai as genai
+from google import genai
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 
@@ -34,18 +34,17 @@ with, or any personal details beyond what is publicly available.
 - Keep answers concise and professional. Adapt technical depth to the question asked.
 """
 
-gemini_model = None
+gemini_client = None
 embedding_fn = None
 chroma_client = None
 COLLECTION = None
 
 
 def init_clients():
-    global gemini_model, embedding_fn, chroma_client, COLLECTION
+    global gemini_client, embedding_fn, chroma_client, COLLECTION
     if COLLECTION is not None:
         return
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+    gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     embedding_fn = embedding_functions.DefaultEmbeddingFunction()
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     COLLECTION = chroma_client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
@@ -102,9 +101,13 @@ def build_prompt(question, chunks, history):
 def ask_gemini(prompt):
     init_clients()
     try:
-        response = gemini_model.generate_content(prompt)
+        response = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
         return response.text
-    except Exception:
+    except Exception as e:
+        print(f"Gemini error: {type(e).__name__}: {e}")
         return "I'm having trouble connecting right now. Please try again in a moment."
 
 
