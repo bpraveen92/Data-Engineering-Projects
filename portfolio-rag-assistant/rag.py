@@ -34,30 +34,30 @@ with, or any personal details beyond what is publicly available.
 - Keep answers concise and professional. Adapt technical depth to the question asked.
 """
 
-_gemini_model = None
-_embedding_fn = None
-_client = None
+gemini_model = None
+embedding_fn = None
+chroma_client = None
 COLLECTION = None
 
 
-def _init():
-    global _gemini_model, _embedding_fn, _client, COLLECTION
+def init_clients():
+    global gemini_model, embedding_fn, chroma_client, COLLECTION
     if COLLECTION is not None:
         return
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    _gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-    _embedding_fn = embedding_functions.DefaultEmbeddingFunction()
-    _client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    COLLECTION = _client.get_collection(name=COLLECTION_NAME, embedding_function=_embedding_fn)
+    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+    embedding_fn = embedding_functions.DefaultEmbeddingFunction()
+    chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    COLLECTION = chroma_client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
 
 
 def load_vector_store():
-    _init()
+    init_clients()
     return COLLECTION
 
 
 def retrieve_chunks(question, n=4):
-    _init()
+    init_clients()
     results = COLLECTION.query(query_texts=[question], n_results=n)
     chunks = []
     for text, metadata, distance in zip(
@@ -100,9 +100,9 @@ def build_prompt(question, chunks, history):
 
 
 def ask_gemini(prompt):
-    _init()
+    init_clients()
     try:
-        response = _gemini_model.generate_content(prompt)
+        response = gemini_model.generate_content(prompt)
         return response.text
     except Exception:
         return "I'm having trouble connecting right now. Please try again in a moment."
