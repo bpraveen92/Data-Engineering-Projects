@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import chromadb
-from google import genai
+from groq import Groq, RateLimitError
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 
@@ -33,17 +33,17 @@ with, or any personal details beyond what is publicly available.
 - Keep answers concise and professional. Adapt technical depth to the question asked.
 """
 
-gemini_client = None
+groq_client = None
 embedding_fn = None
 chroma_client = None
 COLLECTION = None
 
 
 def init_clients():
-    global gemini_client, embedding_fn, chroma_client, COLLECTION
+    global groq_client, embedding_fn, chroma_client, COLLECTION
     if COLLECTION is not None:
         return
-    gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
     embedding_fn = embedding_functions.DefaultEmbeddingFunction()
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     COLLECTION = chroma_client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
@@ -97,16 +97,21 @@ def build_prompt(question, chunks, history):
     return prompt
 
 
-def ask_gemini(prompt):
+def ask_groq(prompt):
     init_clients()
     try:
-        response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
         )
-        return response.text
+        return response.choices[0].message.content
+    except RateLimitError:
+        return (
+            "I've hit my request limit for the moment. Feel free to reach out directly "
+            "at pravbala30@gmail.com or connect on LinkedIn."
+        )
     except Exception as e:
-        print(f"Gemini error: {type(e).__name__}: {e}")
+        print(f"Groq error: {type(e).__name__}: {e}")
         return "I'm having trouble connecting right now. Please try again in a moment."
 
 
@@ -120,5 +125,5 @@ def answer(question, history):
         return LOW_CONFIDENCE_RESPONSE, []
 
     prompt = build_prompt(question, chunks, history)
-    response = ask_gemini(prompt)
+    response = ask_groq(prompt)
     return response, chunks
