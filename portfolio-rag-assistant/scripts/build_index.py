@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 from pathlib import Path
 
 import chromadb
@@ -34,16 +35,20 @@ def get_doc_type(filepath):
     return "general"
 
 
+KNOWLEDGE_BASE_DIRS = ["projects", "profile", "modelling"]
+
+
 def load_documents():
     docs = []
-    for md_file in DOCS_DIR.rglob("*.md"):
-        text = md_file.read_text(encoding="utf-8")
-        docs.append({
-            "text": text,
-            "source": md_file.stem,
-            "type": get_doc_type(md_file),
-        })
-        print(f"  Loaded: {md_file.name} ({len(text)} chars)")
+    for subdir in KNOWLEDGE_BASE_DIRS:
+        for md_file in (DOCS_DIR / subdir).rglob("*.md"):
+            text = md_file.read_text(encoding="utf-8")
+            docs.append({
+                "text": text,
+                "source": md_file.stem,
+                "type": get_doc_type(md_file),
+            })
+            print(f"  Loaded: {md_file.name} ({len(text)} chars)")
     return docs
 
 
@@ -74,12 +79,11 @@ def build_index(chunks):
     # DefaultEmbeddingFunction uses all-MiniLM-L6-v2 via ONNX (no torch needed)
     embedding_fn = embedding_functions.DefaultEmbeddingFunction()
 
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    if CHROMA_DIR.exists():
+        shutil.rmtree(CHROMA_DIR)
+        print("  Cleared existing chroma_db directory.")
 
-    existing = [c.name for c in client.list_collections()]
-    if COLLECTION_NAME in existing:
-        client.delete_collection(COLLECTION_NAME)
-        print("  Deleted existing collection.")
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
     collection = client.create_collection(
         name=COLLECTION_NAME,
