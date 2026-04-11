@@ -114,7 +114,7 @@ def answer(question, history):
     if is_off_limits(question):
         return OFF_LIMITS_RESPONSE, []
 
-    chunks = retrieve_chunks(question, n=4)
+    chunks = retrieve_chunks(question, n=6)
 
     if is_low_confidence(chunks):
         return LOW_CONFIDENCE_RESPONSE, []
