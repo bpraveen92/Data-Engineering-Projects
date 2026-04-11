@@ -50,3 +50,12 @@ Same Spotify dataset as the batch pipeline, rebuilt as a streaming model. A Kine
 
 An analytics engineering pipeline on 9.5M NYC TLC Yellow Taxi trip records — the only project in this portfolio with a dedicated transformation layer. All transformation logic lives in version-controlled, tested dbt SQL models: an incremental fact table with MERGE strategy and clustering key, SCD Type 2 zone snapshot via `strategy='check'`, enforced model contract on `fct_trips`, and a custom `generate_schema_name` macro for dev/prod schema isolation. Orchestrated by a daily Airflow DAG using astronomer-cosmos, which exposes each dbt model as its own independently-retryable task.
 
+---
+
+### [Portfolio RAG Assistant](portfolio-rag-assistant/)
+**Stack:** Python · ChromaDB · Llama 3.3 70B (Groq) · Streamlit · Docker · Hugging Face Spaces
+
+A RAG-based chatbot I built on top of my own portfolio documentation. I've been reading a lot about RAG, vector databases, and embeddings recently and wanted to use this as a hands-on way to see how it all fits together — chunking, embedding, retrieval, prompt construction, and generation as one end-to-end flow. Documents are split into 500-character chunks, embedded using `all-MiniLM-L6-v2` via ChromaDB's built-in ONNX function, and retrieved via cosine similarity search. Llama 3.3 70B on Groq generates answers grounded strictly in the retrieved context. Deployed as a Docker container on Hugging Face Spaces with a Streamlit chat UI.
+
+**Live demo:** https://huggingface.co/spaces/bpraveen92/portfolio-assistant
+
