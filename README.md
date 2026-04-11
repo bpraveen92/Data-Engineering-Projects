@@ -55,7 +55,7 @@ An analytics engineering pipeline on 9.5M NYC TLC Yellow Taxi trip records — t
 ### [Portfolio RAG Assistant](portfolio-rag-assistant/)
 **Stack:** Python · ChromaDB · Llama 3.3 70B (Groq) · Streamlit · Docker · Hugging Face Spaces
 
-A RAG-based chatbot I built on top of my own portfolio documentation. I've been reading a lot about RAG, vector databases, and embeddings recently and wanted to use this as a hands-on way to see how it all fits together — chunking, embedding, retrieval, prompt construction, and generation as one end-to-end flow. Documents are split into 500-character chunks, embedded using `all-MiniLM-L6-v2` via ChromaDB's built-in ONNX function, and retrieved via cosine similarity search. Llama 3.3 70B on Groq generates answers grounded strictly in the retrieved context. Deployed as a Docker container on Hugging Face Spaces with a Streamlit chat UI.
+A RAG-based chatbot I built on top of my own portfolio documentation. I've been reading a lot about RAG, vector databases, and embeddings recently and wanted to use this as a hands-on way to see how it all fits together — chunking, embedding, retrieval, prompt construction, and generation as one end-to-end flow. Documents are split into 500-character chunks, embedded using `all-MiniLM-L6-v2` — which ChromaDB ships bundled so there's no PyTorch dependency or separate model download — and retrieved via cosine similarity search. Llama 3.3 70B on Groq generates answers grounded strictly in the retrieved context. Deployed as a Docker container on Hugging Face Spaces with a Streamlit chat UI.
 
 **Live demo:** https://huggingface.co/spaces/bpraveen92/portfolio-assistant
 

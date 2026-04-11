@@ -69,7 +69,7 @@ Answer displayed in Streamlit chat UI
 | Chat UI | Streamlit | Free |
 | Hosting | Hugging Face Spaces (Docker) | Free |
 | LLM | Llama 3.3 70B via Groq | Free tier (14,400 req/day) |
-| Embeddings | all-MiniLM-L6-v2 via ONNX (ChromaDB built-in) | Free |
+| Embeddings | all-MiniLM-L6-v2 (bundled with ChromaDB, no PyTorch needed) | Free |
 | Vector store | ChromaDB (persistent, file-based) | Free |
 | Knowledge base | Sanitised markdown docs | Already written |
 
@@ -79,9 +79,9 @@ Answer displayed in Streamlit chat UI
 
 ### Phase 1 — Indexing (runs once, locally)
 
-`scripts/build_index.py` reads all the markdown docs, splits them into 500-character chunks with a 50-character overlap, embeds each chunk using `all-MiniLM-L6-v2` via ChromaDB's built-in ONNX function, and saves the resulting vector store to `chroma_db/`. The overlap on chunking is intentional — without it, context at section boundaries gets split awkwardly and retrieval quality drops. The vector store (~9MB) is committed to the repo and deployed to Hugging Face Spaces alongside the app code, so there's no re-indexing at runtime.
+`scripts/build_index.py` reads all the markdown docs, splits them into 500-character chunks with a 50-character overlap, embeds each chunk using `all-MiniLM-L6-v2` — bundled with ChromaDB so there's no separate model download or PyTorch dependency — and saves the resulting vector store to `chroma_db/`. The overlap on chunking is intentional — without it, context at section boundaries gets split awkwardly and retrieval quality drops. The vector store (~9MB) is committed to the repo and deployed to Hugging Face Spaces alongside the app code, so there's no re-indexing at runtime.
 
-I chose `all-MiniLM-L6-v2` because it's a sentence-transformer trained specifically for semantic similarity, runs via ONNX without PyTorch, and has no cost or API dependency. For a project at this scale it's more than good enough.
+I chose `all-MiniLM-L6-v2` because it's a sentence-transformer trained specifically for semantic similarity, runs without needing PyTorch installed, and has no cost or API dependency. For a project at this scale it's more than good enough.
 
 ### Phase 2 — Query (runs on every user question)
 
@@ -134,7 +134,7 @@ make run
 
 ## Deployment
 
-The app is deployed to Hugging Face Spaces using the Docker SDK. The `chroma_db/` vector store is committed to the repo and loaded at startup — no embedding model download required at runtime since ChromaDB's ONNX-based `DefaultEmbeddingFunction` handles query-time embedding inline.
+The app is deployed to Hugging Face Spaces using the Docker SDK. The `chroma_db/` vector store is committed to the repo and loaded at startup — no embedding model download required at runtime since the model ships bundled with ChromaDB and handles query-time embedding inline.
 
 The `GEMINI_API_KEY` is set as a repository secret in HF Spaces settings and never appears in code or git history.
 
