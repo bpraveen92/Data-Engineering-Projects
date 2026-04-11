@@ -15,12 +15,12 @@ OFF_LIMITS_RESPONSE = (
 LOW_CONFIDENCE_THRESHOLD = 0.35
 
 
-def is_off_limits(question: str) -> bool:
+def is_off_limits(question):
     question_lower = question.lower()
     return any(keyword in question_lower for keyword in OFF_LIMITS_KEYWORDS)
 
 
-def is_low_confidence(chunks: list) -> bool:
+def is_low_confidence(chunks):
     if not chunks:
         return True
     return all(chunk["score"] < LOW_CONFIDENCE_THRESHOLD for chunk in chunks)
