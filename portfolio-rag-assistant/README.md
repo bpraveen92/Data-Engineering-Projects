@@ -54,7 +54,7 @@ Confidence check (low score → honest "I don't know")
 Prompt construction (system prompt + history + chunks + question)
     │
     ▼
-Gemini 2.5 Flash generates a grounded answer
+Llama 3.3 70B (Groq) generates a grounded answer
     │
     ▼
 Answer displayed in Streamlit chat UI
@@ -68,7 +68,7 @@ Answer displayed in Streamlit chat UI
 |---|---|---|
 | Chat UI | Streamlit | Free |
 | Hosting | Hugging Face Spaces (Docker) | Free |
-| LLM | Google Gemini 2.5 Flash | Free tier (AI Studio) |
+| LLM | Llama 3.3 70B via Groq | Free tier (14,400 req/day) |
 | Embeddings | all-MiniLM-L6-v2 via ONNX (ChromaDB built-in) | Free |
 | Vector store | ChromaDB (persistent, file-based) | Free |
 | Knowledge base | Sanitised markdown docs | Already written |
