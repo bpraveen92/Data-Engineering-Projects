@@ -34,10 +34,6 @@ if "messages" not in st.session_state:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if msg.get("sources"):
-            with st.expander("Sources", expanded=False):
-                for source in msg["sources"]:
-                    st.caption(f"📄 {source['source']} — {source['section']}")
 
 if user_input := st.chat_input("Ask a question..."):
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -48,10 +44,6 @@ if user_input := st.chat_input("Ask a question..."):
         with st.spinner("Thinking..."):
             response_text, sources = answer(user_input, st.session_state.history)
         st.markdown(response_text)
-        if sources:
-            with st.expander("Sources", expanded=False):
-                for source in sources:
-                    st.caption(f"📄 {source['source']} — {source['section']}")
 
     st.session_state.history.append({"role": "user", "content": user_input})
     st.session_state.history.append({"role": "assistant", "content": response_text})

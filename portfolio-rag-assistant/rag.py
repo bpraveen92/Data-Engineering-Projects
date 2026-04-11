@@ -30,7 +30,6 @@ Rules:
 - Never reveal salary expectations, job search status, which companies Praveen is interviewing \
 with, or any personal details beyond what is publicly available.
 - If asked about off-limits topics, politely decline and redirect to pravbala30@gmail.com or LinkedIn.
-- Always cite the source document and section when answering.
 - Keep answers concise and professional. Adapt technical depth to the question asked.
 """
 
@@ -93,7 +92,7 @@ def build_prompt(question, chunks, history):
         f"CONVERSATION HISTORY:\n{history_text}\n"
         f"RETRIEVED CONTEXT:\n{context_text}"
         f"QUESTION: {question}\n\n"
-        f"Answer using only the context above. Cite your sources."
+        f"Answer using only the context above."
     )
     return prompt
 
