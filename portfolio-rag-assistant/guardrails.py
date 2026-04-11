@@ -12,7 +12,7 @@ OFF_LIMITS_RESPONSE = (
     "https://linkedin.com/in/praveen-balasubramanian-69234577"
 )
 
-LOW_CONFIDENCE_THRESHOLD = 0.35
+LOW_CONFIDENCE_THRESHOLD = 0.20
 
 
 def is_off_limits(question):
