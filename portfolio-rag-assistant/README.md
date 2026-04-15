@@ -108,30 +108,6 @@ All documents are sanitised before indexing. The `docs/` folder is gitignored an
 
 ---
 
-## Local Development
-
-```bash
-# 1. Clone and install
-git clone https://github.com/bpraveen92/Data-Engineering-Projects
-cd portfolio-rag-assistant
-pip install -r requirements.txt
-
-# 2. Add a Gemini API key (get one free at aistudio.google.com/app/apikey)
-cp .env.example .env
-# Edit .env and add the key
-
-# 3. Place markdown docs in the docs/ folder
-
-# 4. Build the vector store
-make index
-
-# 5. Run the app
-make run
-# Opens at http://localhost:8501
-```
-
----
-
 ## Deployment
 
 The app is deployed to Hugging Face Spaces using the Docker SDK. The `chroma_db/` vector store is committed to the repo and loaded at startup — no embedding model download required at runtime since the model ships bundled with ChromaDB and handles query-time embedding inline.

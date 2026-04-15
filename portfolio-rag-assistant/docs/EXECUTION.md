@@ -3,7 +3,6 @@
 ## Prerequisites
 
 - Python 3.11+
-- A free Gemini API key from [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
 - All markdown documentation files placed inside the `docs/` folder
 
 ---
